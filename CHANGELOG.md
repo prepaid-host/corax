@@ -25,3 +25,5 @@ All notable changes to this project are documented here. The format follows
   history without holding the world lock.
 - Livestatus `status` rates (`service_checks_rate`, `host_checks_rate`, `forks_rate`,
   `log_messages_rate`, `external_commands_rate`) and the `forks`/`log_messages` counters.
+- The static binary uses mimalloc: musl's allocator serialized concurrent Livestatus
+  queries (a full service listing on 400 hosts went from ~330 ms to ~26 ms).

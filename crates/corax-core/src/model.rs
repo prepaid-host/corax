@@ -326,6 +326,11 @@ pub struct ProgramState {
 /// Runtime counters for the Livestatus `status` table (`*_rate` columns are derived).
 #[derive(Debug, Default, Clone)]
 pub struct Counters {
+    pub service_checks_rate: crate::rates::RateTracker,
+    pub host_checks_rate: crate::rates::RateTracker,
+    pub external_commands_rate: crate::rates::RateTracker,
+    pub log_messages_rate: crate::rates::RateTracker,
+    pub forks_rate: crate::rates::RateTracker,
     pub service_checks: u64,
     pub host_checks: u64,
     pub external_commands: u64,

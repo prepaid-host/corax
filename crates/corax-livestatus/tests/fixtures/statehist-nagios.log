@@ -1,0 +1,138 @@
+[1795003727] Nagios 3.5.1 starting... (PID=907)
+[1795003727] Local time is Wed Nov 18 12:08:47 UTC 2026
+[1795003727] LOG VERSION: 2.0
+[1795003727] npcdmod: Copyright (c) 2008-2009 Hendrik Baecker (andurin@process-zero.de) - http://www.pnp4nagios.org
+[1795003727] npcdmod: /omd/sites/cmk/etc/pnp4nagios/npcd.cfg initialized
+[1795003727] npcdmod: spool_dir = '/omd/sites/cmk/var/pnp4nagios/spool/'.
+[1795003727] npcdmod: perfdata file '/omd/sites/cmk/var/pnp4nagios/perfdata.dump'.
+[1795003727] npcdmod: Ready to run to have some fun!
+[1795003727] Event broker module '/omd/sites/cmk/lib/npcdmod.o' initialized successfully.
+[1795003727] livestatus: name=[num_client_threads], value=[20]
+[1795003727] livestatus: setting number of client threads to 20
+[1795003727] livestatus: name=[crash_reports_path], value=[/omd/sites/cmk/var/check_mk/crashes]
+[1795003727] livestatus: name=[license_usage_history_path], value=[/omd/sites/cmk/var/check_mk/licensing/history.json]
+[1795003727] livestatus: license usage history file '/omd/sites/cmk/var/check_mk/licensing/history.json' not existing!
+[1795003727] livestatus: name=[mk_inventory_path], value=[/omd/sites/cmk/var/check_mk/inventory]
+[1795003727] livestatus: inventory directory '/omd/sites/cmk/var/check_mk/inventory' not existing!
+[1795003727] livestatus: name=[robotmk_html_log_path], value=[/omd/sites/cmk/var/robotmk/html_logs]
+[1795003727] livestatus: robotmk html log directory '/omd/sites/cmk/var/robotmk/html_logs' not existing!
+[1795003727] livestatus: name=[mk_logwatch_path], value=[/omd/sites/cmk/var/check_mk/logwatch]
+[1795003727] livestatus: name=[prediction_path], value=[/omd/sites/cmk/var/check_mk/prediction]
+[1795003727] livestatus: prediction directory '/omd/sites/cmk/var/check_mk/prediction' not existing!
+[1795003727] livestatus: name=[state_file_created_file], value=[/omd/sites/cmk/var/check_mk/licensing/state_file_created]
+[1795003727] livestatus: name=[licensed_state_file], value=[/omd/sites/cmk/var/check_mk/licensing/licensed_state]
+[1795003727] livestatus: name=[pnp_path], value=[/omd/sites/cmk/var/pnp4nagios/perfdata]
+[1795003727] livestatus: name=[edition], value=[community]
+[1795003727] livestatus: ### setting livestatus_socket=[/omd/sites/cmk/tmp/run/live]
+[1795003727] livestatus: Livestatus by Checkmk GmbH started with PID 907
+[1795003727] livestatus: version 2.5.0p20 compiled redacted with g++ 14.2.0, using RE2 regex engine
+[1795003727] livestatus: please visit us at https://checkmk.com/
+[1795003727] livestatus: running on Checkmk site cmk, cool.
+[1795003727] livestatus: opened UNIX socket at "/omd/sites/cmk/tmp/run/live"
+[1795003727] livestatus: your event_broker_options are sufficient for livestatus.
+[1795003727] livestatus: finished initialization, further log messages go to "/omd/sites/cmk/var/nagios/livestatus.log"
+[1795003727] Event broker module '/omd/sites/cmk/lib/mk-livestatus/livestatus.o' initialized successfully.
+[1795003727] Finished daemonizing... (New PID=908)
+[1795003727] TIMEPERIOD TRANSITION: 24X7;-1;1
+[1795003727] logging initial states
+[1795003727] livestatus: starting main thread and 20 client threads
+[1795003727] livestatus: default stack size is 8388608
+[1795003727] livestatus: setting thread stack size to 1048576
+[1795003817] Caught SIGHUP, restarting...
+[1795003817] npcdmod: If you don't like me, I will go out! Bye.
+[1795003817] Event broker module '/omd/sites/cmk/lib/npcdmod.o' deinitialized successfully.
+[1795003817] livestatus: deinitializing
+[1795003817] livestatus: waiting for main to terminate...
+[1795003818] livestatus: waiting for client threads to terminate...
+[1795003818] livestatus: cannot join thread main: No such process
+[1795003818] livestatus: main thread + 20 client threads have finished
+[1795003818] Event broker module '/omd/sites/cmk/lib/mk-livestatus/livestatus.o' deinitialized successfully.
+[1795003818] Nagios 3.5.1 starting... (PID=908)
+[1795003818] Local time is Wed Nov 18 12:10:18 UTC 2026
+[1795003818] LOG VERSION: 2.0
+[1795003818] npcdmod: Copyright (c) 2008-2009 Hendrik Baecker (andurin@process-zero.de) - http://www.pnp4nagios.org
+[1795003818] npcdmod: /omd/sites/cmk/etc/pnp4nagios/npcd.cfg initialized
+[1795003818] npcdmod: spool_dir = '/omd/sites/cmk/var/pnp4nagios/spool/'.
+[1795003818] npcdmod: perfdata file '/omd/sites/cmk/var/pnp4nagios/perfdata.dump'.
+[1795003818] npcdmod: Ready to run to have some fun!
+[1795003818] Event broker module '/omd/sites/cmk/lib/npcdmod.o' initialized successfully.
+[1795003818] livestatus: name=[num_client_threads], value=[20]
+[1795003818] livestatus: setting number of client threads to 20
+[1795003818] livestatus: name=[crash_reports_path], value=[/omd/sites/cmk/var/check_mk/crashes]
+[1795003818] livestatus: name=[license_usage_history_path], value=[/omd/sites/cmk/var/check_mk/licensing/history.json]
+[1795003818] livestatus: name=[mk_inventory_path], value=[/omd/sites/cmk/var/check_mk/inventory]
+[1795003818] livestatus: inventory directory '/omd/sites/cmk/var/check_mk/inventory' not existing!
+[1795003818] livestatus: name=[robotmk_html_log_path], value=[/omd/sites/cmk/var/robotmk/html_logs]
+[1795003818] livestatus: robotmk html log directory '/omd/sites/cmk/var/robotmk/html_logs' not existing!
+[1795003818] livestatus: name=[mk_logwatch_path], value=[/omd/sites/cmk/var/check_mk/logwatch]
+[1795003818] livestatus: name=[prediction_path], value=[/omd/sites/cmk/var/check_mk/prediction]
+[1795003818] livestatus: prediction directory '/omd/sites/cmk/var/check_mk/prediction' not existing!
+[1795003818] livestatus: name=[state_file_created_file], value=[/omd/sites/cmk/var/check_mk/licensing/state_file_created]
+[1795003818] livestatus: name=[licensed_state_file], value=[/omd/sites/cmk/var/check_mk/licensing/licensed_state]
+[1795003818] livestatus: name=[pnp_path], value=[/omd/sites/cmk/var/pnp4nagios/perfdata]
+[1795003818] livestatus: name=[edition], value=[community]
+[1795003818] livestatus: ### setting livestatus_socket=[/omd/sites/cmk/tmp/run/live]
+[1795003818] livestatus: Livestatus by Checkmk GmbH started with PID 908
+[1795003818] livestatus: version 2.5.0p20 compiled redacted with g++ 14.2.0, using RE2 regex engine
+[1795003818] livestatus: please visit us at https://checkmk.com/
+[1795003818] livestatus: running on Checkmk site cmk, cool.
+[1795003818] livestatus: opened UNIX socket at "/omd/sites/cmk/tmp/run/live"
+[1795003818] livestatus: your event_broker_options are sufficient for livestatus.
+[1795003818] livestatus: finished initialization, further log messages go to "/omd/sites/cmk/var/nagios/livestatus.log"
+[1795003818] Event broker module '/omd/sites/cmk/lib/mk-livestatus/livestatus.o' initialized successfully.
+[1795003818] TIMEPERIOD TRANSITION: 24X7;-1;1
+[1795003818] INITIAL HOST STATE: db01;UP;HARD;1;
+[1795003818] INITIAL HOST STATE: localhost;UP;HARD;1;
+[1795003818] INITIAL HOST STATE: web01;UP;HARD;1;
+[1795003818] INITIAL SERVICE STATE: db01;CPU utilization;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: db01;Check_MK;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: db01;Check_MK Agent;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: db01;Check_MK Discovery;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: db01;Check_MK HW/SW Inventory;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: db01;Disk IO SUMMARY;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: db01;Interface 2;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: db01;Memory;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: db01;Postfix Queue default;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: db01;Systemd Service Summary;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: db01;Systemd Socket Summary;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: db01;TCP Connections;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: db01;Uptime;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: localhost;CPU utilization;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: localhost;Check_MK;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: localhost;Check_MK Agent;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: localhost;Check_MK Discovery;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: localhost;Check_MK HW/SW Inventory;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: localhost;Disk IO SUMMARY;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: localhost;Interface 2;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: localhost;Memory;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: localhost;Postfix Queue default;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: localhost;Systemd Service Summary;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: localhost;Systemd Socket Summary;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: localhost;TCP Connections;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: localhost;Uptime;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: web01;CPU utilization;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: web01;Check_MK;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: web01;Check_MK Agent;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: web01;Check_MK Discovery;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: web01;Check_MK HW/SW Inventory;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: web01;Disk IO SUMMARY;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: web01;Interface 2;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: web01;Memory;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: web01;Postfix Queue default;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: web01;Systemd Service Summary;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: web01;Systemd Socket Summary;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: web01;TCP Connections;OK;HARD;1;(null)
+[1795003818] INITIAL SERVICE STATE: web01;Uptime;OK;HARD;1;(null)
+[1795003818] livestatus: starting main thread and 20 client threads
+[1795003818] livestatus: default stack size is 8388608
+[1795003818] livestatus: setting thread stack size to 1048576
+[1795003860] EXTERNAL COMMAND: SCHEDULE_HOST_DOWNTIME;web01;1795003200;1795089600;1;0;0;cmkadmin;maint
+[1795003860] HOST DOWNTIME ALERT: web01;STARTED; Host has entered a period of scheduled downtime
+[1795003860] HOST NOTIFICATION: check-mk-notify;web01;DOWNTIMESTART (UP);check-mk-notify;OK - 127.0.0.1 rta 0.011ms lost 0%
+[1795003861] EXTERNAL COMMAND: ADD_HOST_COMMENT;db01;0;cmkadmin;hello
+[1795004020] SERVICE ALERT: db01;Check_MK Discovery;WARNING;HARD;1;Services unmonitored: 7 (ps: 7)(!), Host labels: all up to date, execution time 0.0 sec
+[1795004020] SERVICE NOTIFICATION: check-mk-notify;db01;Check_MK Discovery;WARNING;check-mk-notify;Services unmonitored: 7 (ps: 7)(!), Host labels: all up to date, execution time 0.0 sec
+[1795004054] SERVICE ALERT: localhost;Check_MK Discovery;WARNING;HARD;1;Services unmonitored: 7 (ps: 7)(!), Host labels: all up to date, execution time 0.0 sec
+[1795004054] SERVICE NOTIFICATION: check-mk-notify;localhost;Check_MK Discovery;WARNING;check-mk-notify;Services unmonitored: 7 (ps: 7)(!), Host labels: all up to date, execution time 0.0 sec
+[1795004087] SERVICE ALERT: web01;Check_MK Discovery;WARNING;HARD;1;Services unmonitored: 7 (ps: 7)(!), Host labels: all up to date, execution time 0.0 sec
+[1795007418] Auto-save of retention data completed successfully.

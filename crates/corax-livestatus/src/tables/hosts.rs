@@ -5,7 +5,7 @@ use std::sync::Arc;
 use corax_core::{Host, Service};
 
 use super::checkable::{self, pnp_cleanup, Obj};
-use super::{file_exists, Ctx};
+use super::Ctx;
 use crate::value::Value;
 
 pub type HostFn = Arc<dyn for<'x> Fn(&Ctx<'x>, &Host) -> Value + Send + Sync>;
@@ -140,14 +140,7 @@ pub fn column(name: &str) -> Option<HostFn> {
         "staleness" => f(|c, h| Value::Float(host_staleness(c, h))),
         "x_3d" | "y_3d" | "z_3d" => f(|_, _| Value::Float(0.0)),
         "structured_status" => f(|_, _| Value::Blob(Vec::new())),
-        "pnpgraph_present" => f(|c, h| {
-            Value::bool(
-                c.paths
-                    .pnp_path
-                    .as_ref()
-                    .is_some_and(|p| file_exists(&p.join(pnp_cleanup(&h.cfg.name)).join("_HOST_.xml"))),
-            )
-        }),
+        "pnpgraph_present" => f(|c, h| Value::bool(c.pnp_graph_present(&pnp_cleanup(&h.cfg.name), "_HOST_.xml"))),
         "mk_inventory" => f(|c, h| inventory_file(c, h, "")),
         "mk_inventory_gz" => f(|c, h| inventory_file(c, h, ".gz")),
         "mk_inventory_last" => f(|c, h| {

@@ -21,3 +21,7 @@ All notable changes to this project are documented here. The format follows
 - Exclusive lock on `lock_file`: a second core instance for the same site refuses to start.
 - Hardening: bounded request/line sizes, filter nesting and regex size limits in
   Livestatus; user supplied text in notification macros is cleaned like plugin output.
+- Livestatus `statehist` table (availability reports), replayed from the monitoring
+  history without holding the world lock.
+- Livestatus `status` rates (`service_checks_rate`, `host_checks_rate`, `forks_rate`,
+  `log_messages_rate`, `external_commands_rate`) and the `forks`/`log_messages` counters.

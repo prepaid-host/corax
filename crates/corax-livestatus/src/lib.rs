@@ -35,6 +35,7 @@ pub struct Stats {
     queries: AtomicU64,
     connections: AtomicU64,
     active: AtomicU64,
+    rates: std::sync::Mutex<(corax_core::rates::RateTracker, corax_core::rates::RateTracker)>,
 }
 
 impl Stats {
@@ -48,6 +49,15 @@ impl Stats {
 
     pub fn active_connections(&self) -> u64 {
         self.active.load(Ordering::Relaxed)
+    }
+
+    /// Smoothed `(requests_rate, connections_rate)`, sampled lazily on read.
+    pub fn rates(&self) -> (f64, f64) {
+        let now = corax_core::now_f64();
+        let Ok(mut r) = self.rates.lock() else { return (0.0, 0.0) };
+        r.0.sample(now, self.queries());
+        r.1.sample(now, self.connections());
+        (r.0.rate(), r.1.rate())
     }
 
     pub(crate) fn count_query(&self) {
@@ -66,7 +76,11 @@ impl Stats {
 
 /// Process-wide Livestatus counters.
 pub fn stats() -> &'static Stats {
-    static STATS: Stats =
-        Stats { queries: AtomicU64::new(0), connections: AtomicU64::new(0), active: AtomicU64::new(0) };
+    static STATS: Stats = Stats {
+        queries: AtomicU64::new(0),
+        connections: AtomicU64::new(0),
+        active: AtomicU64::new(0),
+        rates: std::sync::Mutex::new((corax_core::rates::RateTracker::new(), corax_core::rates::RateTracker::new())),
+    };
     &STATS
 }

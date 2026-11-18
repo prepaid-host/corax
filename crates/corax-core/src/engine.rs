@@ -64,6 +64,8 @@ pub struct Engine {
     helper: Arc<CheckHelper>,
     limiter: Arc<Semaphore>,
     reap_now: Arc<Notify>,
+    /// Processes started (checks, notifications, event handlers).
+    forks: Arc<std::sync::atomic::AtomicU64>,
     reaper: Option<tokio::task::JoinHandle<()>>,
     options: EngineOptions,
     loader: ConfigLoader,
@@ -103,6 +105,7 @@ impl Engine {
             helper: Arc::new(CheckHelper::new(options.check_helper, &work_dir)),
             limiter: Arc::new(Semaphore::new(permits)),
             reap_now: Arc::new(Notify::new()),
+            forks: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             reaper: None,
             sched: Scheduler::new(),
             shared,
@@ -312,8 +315,14 @@ impl Engine {
         for e in fx {
             match e {
                 Effect::Log(t, line) => self.log.write(t, &line),
-                Effect::Notify { cmdline } => spawn_detached(cmdline, notification_timeout, "notification"),
-                Effect::EventHandler { cmdline } => spawn_detached(cmdline, event_handler_timeout, "event handler"),
+                Effect::Notify { cmdline } => {
+                    self.forks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    spawn_detached(cmdline, notification_timeout, "notification")
+                }
+                Effect::EventHandler { cmdline } => {
+                    self.forks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    spawn_detached(cmdline, event_handler_timeout, "event handler")
+                }
                 Effect::Perfdata(_) => {}
                 Effect::SaveRetention => save = true,
                 Effect::Restart => reload = true,
@@ -376,6 +385,7 @@ impl Engine {
         let helper = self.helper.clone();
         let tx = self.shared.sender();
         let reap_now = self.reap_now.clone();
+        self.forks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         tokio::spawn(async move {
             let _permit = limiter.acquire_owned().await;
             let start = now_f64();
@@ -434,7 +444,16 @@ impl Engine {
             if services_due || hosts_due {
                 check_freshness(&mut ctx, services_due, hosts_due);
             }
-            ctx.w.counters.helper_checks = self.helper.served.load(std::sync::atomic::Ordering::Relaxed);
+            let c = &mut ctx.w.counters;
+            c.helper_checks = self.helper.served.load(std::sync::atomic::Ordering::Relaxed);
+            c.forks = self.forks.load(std::sync::atomic::Ordering::Relaxed);
+            c.log_messages = self.log.lines_written;
+            let t = now_f64();
+            c.service_checks_rate.sample(t, c.service_checks);
+            c.host_checks_rate.sample(t, c.host_checks);
+            c.external_commands_rate.sample(t, c.external_commands);
+            c.log_messages_rate.sample(t, c.log_messages);
+            c.forks_rate.sample(t, c.forks);
             if rotate {
                 rotation_lines = state_lines(&guard, "CURRENT");
                 guard.program.last_log_rotation = now;

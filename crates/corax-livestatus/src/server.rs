@@ -15,7 +15,7 @@ use crate::query::{status, Request};
 /// Maximum size of a single request.
 const MAX_REQUEST_BYTES: usize = 16 * 1024 * 1024;
 /// Concurrent client connections; further clients wait in the accept queue.
-const MAX_CONNECTIONS: usize = 512;
+pub(crate) const MAX_CONNECTIONS: usize = 512;
 /// Idle time after which a keep-alive connection is closed.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 

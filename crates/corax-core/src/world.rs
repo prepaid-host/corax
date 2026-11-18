@@ -116,6 +116,9 @@ pub struct Paths {
     pub prediction_path: Option<PathBuf>,
     pub mkeventd_socket: Option<PathBuf>,
     pub edition: String,
+    /// Checkmk licensing files Livestatus exposes (`license_usage_history`, `state_file_created`).
+    pub license_usage_history_path: Option<PathBuf>,
+    pub state_file_created_file: Option<PathBuf>,
     /// Checkmk version of the OMD site (e.g. `2.5.0p20`), reported as `livestatus_version`.
     pub checkmk_version: Option<String>,
     /// npcdmod: `perfdata_file`, `perfdata_spool_dir`, `perfdata_file_processing_interval`.
@@ -147,6 +150,8 @@ impl Paths {
             p.mk_inventory_path = opt("mk_inventory_path");
             p.mk_logwatch_path = opt("mk_logwatch_path");
             p.prediction_path = opt("prediction_path");
+            p.license_usage_history_path = opt("license_usage_history_path");
+            p.state_file_created_file = opt("state_file_created_file");
             p.mkeventd_socket = opt("mkeventd_status_socket");
             if let Some(e) = ls.options.get("edition") {
                 p.edition = e.clone();

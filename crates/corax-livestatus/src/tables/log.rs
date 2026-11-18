@@ -246,6 +246,51 @@ const DEFS: &[LogDef] = &[
     LogDef { prefix: "EXTERNAL COMMAND", class: class::EXT_COMMAND, kind: Kind::None, params: &[] },
 ];
 
+/// What a log line means for the state history (upstream `LogEntryKind`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Event {
+    #[default]
+    None,
+    LogVersion,
+    LoggingInitialStates,
+    CoreStarting,
+    CoreStopping,
+    InitialHostState,
+    CurrentHostState,
+    HostAlert,
+    HostDowntimeAlert,
+    HostAcknowledgeAlert,
+    HostFlappingAlert,
+    InitialServiceState,
+    CurrentServiceState,
+    ServiceAlert,
+    ServiceDowntimeAlert,
+    ServiceAcknowledgeAlert,
+    ServiceFlappingAlert,
+    TimeperiodTransition,
+}
+
+impl Event {
+    fn from_prefix(prefix: &str) -> Event {
+        match prefix {
+            "INITIAL HOST STATE" => Event::InitialHostState,
+            "CURRENT HOST STATE" => Event::CurrentHostState,
+            "HOST ALERT" => Event::HostAlert,
+            "HOST DOWNTIME ALERT" => Event::HostDowntimeAlert,
+            "HOST ACKNOWLEDGE ALERT" => Event::HostAcknowledgeAlert,
+            "HOST FLAPPING ALERT" => Event::HostFlappingAlert,
+            "INITIAL SERVICE STATE" => Event::InitialServiceState,
+            "CURRENT SERVICE STATE" => Event::CurrentServiceState,
+            "SERVICE ALERT" => Event::ServiceAlert,
+            "SERVICE DOWNTIME ALERT" => Event::ServiceDowntimeAlert,
+            "SERVICE ACKNOWLEDGE ALERT" => Event::ServiceAcknowledgeAlert,
+            "SERVICE FLAPPING ALERT" => Event::ServiceFlappingAlert,
+            "TIMEPERIOD TRANSITION" => Event::TimeperiodTransition,
+            _ => Event::None,
+        }
+    }
+}
+
 /// One parsed log line.
 #[derive(Debug, Clone, Default)]
 pub struct LogEntry {
@@ -254,6 +299,8 @@ pub struct LogEntry {
     pub message: String,
     pub class: i64,
     kind: Option<Kind>,
+    /// Fine-grained classification used by the `statehist` table.
+    pub event: Event,
     pub type_: String,
     pub options: String,
     pub state: i64,
@@ -328,6 +375,26 @@ fn command_target(cmd: &str) -> u8 {
     }
 }
 
+/// Classify core program messages (upstream `LogEntry::classifyLogMessage`).
+fn program_event(text: &str) -> Option<Event> {
+    if text.starts_with("LOG VERSION: 2.0") {
+        return Some(Event::LogVersion);
+    }
+    if text.starts_with("logging initial states") || text.starts_with("logging intitial states") {
+        return Some(Event::LoggingInitialStates);
+    }
+    let ellipsis = text.contains("...");
+    if ellipsis && (text.contains("starting...") || text.contains("active mode...")) {
+        return Some(Event::CoreStarting);
+    }
+    if text.contains("Bailing out")
+        || (ellipsis && (text.contains("shutting down...") || text.contains("standby mode...")))
+    {
+        return Some(Event::CoreStopping);
+    }
+    None
+}
+
 impl LogEntry {
     /// Parse `[1700000000] TYPE: options`. Returns `None` for malformed lines.
     pub fn parse(lineno: i64, line: &str) -> Option<Self> {
@@ -348,6 +415,7 @@ impl LogEntry {
             e.type_ = def.prefix.to_string();
             e.class = def.class;
             e.kind = Some(def.kind);
+            e.event = Event::from_prefix(def.prefix);
             let mut rest = Some(&text[def.prefix.len() + 2..]);
             for &p in def.params {
                 let field = match rest {
@@ -376,16 +444,9 @@ impl LogEntry {
         if let Some(cmd) = text.strip_prefix("Warning: Unrecognized external command -> ") {
             e.class = class::EXT_COMMAND;
             e.set_command_target(cmd);
-        } else if text.starts_with("LOG VERSION: 2.0")
-            || text.starts_with("logging initial states")
-            || text.starts_with("logging intitial states")
-            || text.contains("starting...")
-            || text.contains("active mode...")
-            || text.contains("Bailing out")
-            || text.contains("shutting down...")
-            || text.contains("standby mode...")
-        {
+        } else if let Some(event) = program_event(text) {
             e.class = class::PROGRAM;
+            e.event = event;
         } else {
             e.class = class::INFO;
         }

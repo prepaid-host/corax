@@ -378,3 +378,29 @@ KeepAlive: on
 ResponseHeader: fixed16
 ColumnHeaders: off
 
+GET statehist
+Columns: host_name service_description duration from until state host_down in_downtime in_host_downtime in_notification_period in_service_period is_flapping
+Filter: time >= 1794960000
+Filter: time < 1795008912
+Filter: service_description =
+Timelimit: 30
+Localtime: 1795008912
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 5001
+
+GET statehist
+Columns: host_name service_description duration from until state host_down in_downtime in_host_downtime in_notification_period in_service_period is_flapping
+Filter: time >= 1794960000
+Filter: time < 1795008913
+Filter: service_description !=
+Timelimit: 30
+Filter: service_description = Memory
+Filter: host_name = db01
+Localtime: 1795008913
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 5001
+

@@ -88,7 +88,7 @@ fn resolve_auth(world: &World, user: Option<&str>) -> Auth {
 fn wait_satisfied(shared: &Shared, q: &Query, cond: &Filter) -> Result<bool, String> {
     let paths = shared.paths();
     let world = shared.world.read();
-    let ctx = Ctx { world: &world, paths: &paths, now: corax_core::now(), auth: Auth::All };
+    let ctx = Ctx { world: &world, paths: &paths, now: corax_core::now(), auth: Auth::All, pnp: None };
     let obj = q.wait_object.as_deref().map(str::trim);
     let row = match (q.table.as_str(), obj) {
         ("hosts", Some(name)) => world.find_host(name).map(|h| Row::Host(world.host(h))),
@@ -257,6 +257,15 @@ fn compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
     }
 }
 
+/// Query period of the `statehist` table as inclusive `(since, until)`, like upstream
+/// `LogPeriod::make`: bounds from the `time` filters, defaulting to `[0, now]`.
+fn statehist_period(q: &Query) -> (i64, i64) {
+    let (lo, hi) = q.filter.int_bounds("time");
+    let since = if lo == i64::MIN { 0 } else { lo };
+    let until = if hi == i64::MAX { corax_core::now() } else { hi };
+    (since, until)
+}
+
 /// Execute a parsed `GET` query.
 pub fn run_query(shared: &Shared, q: &Query) -> Response {
     crate::stats().count_query();
@@ -264,8 +273,20 @@ pub fn run_query(shared: &Shared, q: &Query) -> Response {
         return Response::error(*code, msg, q.fixed16, q.keepalive);
     }
     let paths = shared.paths();
-    let period = if q.table == "log" { q.filter.int_bounds("time") } else { (i64::MIN, i64::MAX) };
-    let pre: Preloaded = tables::preload(&q.table, &paths, period);
+    let period = match q.table.as_str() {
+        "log" => q.filter.int_bounds("time"),
+        "statehist" => statehist_period(q),
+        _ => (i64::MIN, i64::MAX),
+    };
+    let needs_pnp = q.uses_column(&|c| c.canonical.ends_with("pnpgraph_present"));
+    let mut pre: Preloaded = tables::preload(&q.table, &paths, period, needs_pnp);
+    if q.table == "statehist" {
+        // the replay runs without the world lock; only a name snapshot is taken under it
+        let snapshot = tables::statehist::Snapshot::new(&shared.world.read());
+        let (since, until) = period;
+        pre.statehist = tables::statehist::compute_from_chunks(&pre.log, &snapshot, since, until + 1);
+        pre.log = Vec::new();
+    }
 
     let order_cols: Vec<&Column> = q.order_by.iter().map(|(c, _)| c).collect();
     let mut rows: Vec<Vec<Value>> = Vec::new();
@@ -280,6 +301,7 @@ pub fn run_query(shared: &Shared, q: &Query) -> Response {
             paths: &paths,
             now: corax_core::now(),
             auth: resolve_auth(&world, q.auth_user.as_deref()),
+            pnp: pre.pnp.as_ref(),
         };
         let limit = if q.order_by.is_empty() { q.limit } else { None };
         let mut matched = 0usize;

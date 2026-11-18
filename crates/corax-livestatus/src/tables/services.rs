@@ -5,7 +5,7 @@ use std::sync::Arc;
 use corax_core::Service;
 
 use super::checkable::{self, pnp_cleanup, Obj};
-use super::{file_exists, Ctx};
+use super::Ctx;
 use crate::value::Value;
 
 pub type ServiceFn = Arc<dyn for<'x> Fn(&Ctx<'x>, &Service) -> Value + Send + Sync>;
@@ -57,9 +57,7 @@ pub fn column(name: &str) -> Option<ServiceFn> {
         "staleness" => f(|c, s| Value::Float(staleness(c, s))),
         "pnpgraph_present" => f(|c, s| {
             let host = &c.world.host(s.host).cfg.name;
-            Value::bool(c.paths.pnp_path.as_ref().is_some_and(|p| {
-                file_exists(&p.join(pnp_cleanup(host)).join(format!("{}.xml", pnp_cleanup(&s.cfg.description))))
-            }))
+            Value::bool(c.pnp_graph_present(&pnp_cleanup(host), &format!("{}.xml", pnp_cleanup(&s.cfg.description))))
         }),
         "prediction_files" => f(|_, _| Value::List(Vec::new())),
         "robotmk_last_log" | "robotmk_last_log_gz" | "robotmk_last_error_log" | "robotmk_last_error_log_gz" => {

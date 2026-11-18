@@ -63,6 +63,15 @@ pub enum Filter {
 pub const MAX_FILTER_DEPTH: usize = 64;
 
 impl Filter {
+    /// Whether any column filter in the tree satisfies `pred`.
+    pub fn any_column(&self, pred: &dyn Fn(&Column) -> bool) -> bool {
+        match self {
+            Filter::Column(c) => pred(&c.column),
+            Filter::Not(f) => f.any_column(pred),
+            Filter::And(v) | Filter::Or(v) => v.iter().any(|f| f.any_column(pred)),
+        }
+    }
+
     /// Nesting depth. Only called on filters whose children are already bounded.
     pub fn depth(&self) -> usize {
         match self {
@@ -309,7 +318,7 @@ mod tests {
     fn check(ty: ColumnType, v: Value, op: &str, reference: &str) -> bool {
         let world = test_world();
         let paths = corax_core::Paths::default();
-        let ctx = Ctx { world: &world, paths: &paths, now: 0, auth: crate::tables::Auth::All };
+        let ctx = Ctx { world: &world, paths: &paths, now: 0, auth: crate::tables::Auth::All, pnp: None };
         let f = ColumnFilter::new(col(ty, v), Op::parse(op).unwrap(), reference).unwrap();
         f.accepts(&ctx, &crate::tables::Row::Status)
     }

@@ -5,6 +5,11 @@
 //! using the very same interpreter. Until it reports `READY` (warm-up takes a few
 //! seconds) and whenever it is unavailable, checks transparently fall back to a
 //! regular fork/exec.
+//!
+//! A failed request (connect error, fork failure in the helper, …) suspends the helper
+//! only briefly; after [`MAX_FAILURES`] consecutive failures it is restarted. The helper
+//! must never stay disabled while its process is alive: every fallback forks a full
+//! Python interpreter, which is exactly the load the helper exists to avoid.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -20,6 +25,45 @@ use tokio::process::{Child, Command};
 use crate::exec::{kill_group, ExecOutput};
 
 const SCRIPT: &str = include_str!("check_helper.py");
+
+/// Consecutive failed requests after which the helper is restarted.
+const MAX_FAILURES: u32 = 3;
+/// How long checks bypass the helper after a failed request.
+const SUSPEND: Duration = Duration::from_secs(2);
+
+/// Failure bookkeeping between the helper being started and being usable.
+#[derive(Debug, Default)]
+struct Health {
+    failures: u32,
+    suspended_until: Option<Instant>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum OnFailure {
+    Suspend,
+    Restart,
+}
+
+impl Health {
+    fn usable(&self, now: Instant) -> bool {
+        self.suspended_until.is_none_or(|t| now >= t)
+    }
+
+    fn success(&mut self) {
+        self.failures = 0;
+        self.suspended_until = None;
+    }
+
+    fn failure(&mut self, now: Instant) -> OnFailure {
+        self.failures += 1;
+        if self.failures >= MAX_FAILURES {
+            *self = Health::default();
+            return OnFailure::Restart;
+        }
+        self.suspended_until = Some(now + SUSPEND);
+        OnFailure::Suspend
+    }
+}
 
 /// Is `argv` a Checkmk precompiled host check invocation?
 pub fn is_host_check(argv: &[String]) -> bool {
@@ -42,6 +86,9 @@ pub struct CheckHelper {
     socket: PathBuf,
     script: PathBuf,
     ready: Arc<AtomicBool>,
+    /// Incremented for every started helper; a stale stdout reader must not touch `ready`.
+    generation: Arc<AtomicU64>,
+    health: Mutex<Health>,
     running: Mutex<Option<Running>>,
     last_start: Mutex<Option<Instant>>,
     pub served: AtomicU64,
@@ -56,6 +103,8 @@ impl CheckHelper {
             socket: work_dir.join("corax-check-helper.sock"),
             script: work_dir.join("corax-check-helper.py"),
             ready: Arc::new(AtomicBool::new(false)),
+            generation: Arc::new(AtomicU64::new(0)),
+            health: Mutex::new(Health::default()),
             running: Mutex::new(None),
             last_start: Mutex::new(None),
             served: AtomicU64::new(0),
@@ -65,6 +114,26 @@ impl CheckHelper {
 
     pub fn is_ready(&self) -> bool {
         self.ready.load(Ordering::Acquire)
+    }
+
+    fn is_usable(&self) -> bool {
+        self.is_ready() && self.health.lock().usable(Instant::now())
+    }
+
+    /// A request failed before the helper took responsibility for the check.
+    fn request_failed(&self, error: &str) {
+        match self.health.lock().failure(Instant::now()) {
+            OnFailure::Suspend => {
+                tracing::warn!("check helper request failed ({error}); using fork/exec for {}s", SUSPEND.as_secs());
+            }
+            OnFailure::Restart => {
+                tracing::warn!("check helper failed {MAX_FAILURES} times in a row ({error}); restarting it");
+                self.ready.store(false, Ordering::Release);
+                if let Some(mut r) = self.running.lock().take() {
+                    let _ = r.child.start_kill();
+                }
+            }
+        }
     }
 
     /// Make sure a helper for `python`/`dir` is running (starting it if needed).
@@ -109,17 +178,22 @@ impl CheckHelper {
             }
         };
         tracing::info!("starting check helper (pid {:?}) for {}", child.id(), host_checks_dir.display());
+        let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
+        *self.health.lock() = Health::default();
         if let Some(stdout) = child.stdout.take() {
             let ready = self.ready.clone();
+            let current = self.generation.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    if line.trim() == "READY" {
+                    if line.trim() == "READY" && current.load(Ordering::Acquire) == generation {
                         tracing::info!("check helper is ready");
                         ready.store(true, Ordering::Release);
                     }
                 }
-                ready.store(false, Ordering::Release);
+                if current.load(Ordering::Acquire) == generation {
+                    ready.store(false, Ordering::Release);
+                }
             });
         }
         *running = Some(Running { child, python: python.to_string(), host_checks_dir: host_checks_dir.to_path_buf() });
@@ -128,6 +202,7 @@ impl CheckHelper {
     /// Stop the helper (on reload/shutdown). It is restarted lazily.
     pub fn stop(&self) {
         self.ready.store(false, Ordering::Release);
+        self.generation.fetch_add(1, Ordering::AcqRel);
         if let Some(mut r) = self.running.lock().take() {
             let _ = r.child.start_kill();
         }
@@ -141,7 +216,7 @@ impl CheckHelper {
         }
         let dir = Path::new(&argv[2]).parent()?.to_path_buf();
         self.ensure_started(&argv[0], &dir);
-        if !self.is_ready() {
+        if !self.is_usable() {
             self.fallbacks.fetch_add(1, Ordering::Relaxed);
             return None;
         }
@@ -149,6 +224,7 @@ impl CheckHelper {
         match tokio::time::timeout(timeout, self.roundtrip(argv)).await {
             Ok(Ok((_, rc, output))) => {
                 self.served.fetch_add(1, Ordering::Relaxed);
+                self.health.lock().success();
                 Some(ExecOutput {
                     return_code: rc,
                     output,
@@ -169,9 +245,8 @@ impl CheckHelper {
                         duration: started.elapsed(),
                     });
                 }
-                tracing::debug!("check helper unavailable ({e}), falling back to exec");
                 self.fallbacks.fetch_add(1, Ordering::Relaxed);
-                self.ready.store(false, Ordering::Release);
+                self.request_failed(&e);
                 None
             }
             Err(_) => Some(ExecOutput {
@@ -236,5 +311,24 @@ mod tests {
         assert!(!is_host_check(&v(&["python3", "-P", "/a/other/h1"])));
         assert!(!is_host_check(&v(&["python3", "/a/host_checks/h1"])));
         assert!(!is_host_check(&v(&["python3", "-P", "/a/host_checks/h1", "--evil"])));
+    }
+
+    /// Regression: one failed request used to disable a live helper forever, turning
+    /// every host check into a full Python fork/exec.
+    #[test]
+    fn failures_suspend_briefly_then_restart() {
+        let mut h = Health::default();
+        let t = Instant::now();
+        assert!(h.usable(t));
+        assert_eq!(h.failure(t), OnFailure::Suspend);
+        assert!(!h.usable(t));
+        assert!(h.usable(t + SUSPEND));
+        h.success();
+        assert!(h.usable(t));
+        for _ in 1..MAX_FAILURES {
+            assert_eq!(h.failure(t), OnFailure::Suspend);
+        }
+        assert_eq!(h.failure(t), OnFailure::Restart);
+        assert!(h.usable(t), "a restarted helper starts healthy");
     }
 }

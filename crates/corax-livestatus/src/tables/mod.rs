@@ -13,8 +13,10 @@ mod hosts;
 pub mod log;
 mod misc;
 mod services;
+pub mod statehist;
 mod status;
 
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -43,9 +45,20 @@ pub struct Ctx<'a> {
     pub paths: &'a Paths,
     pub now: i64,
     pub auth: Auth,
+    /// PNP graph files listed before taking the world lock (`None`: probe the file system).
+    pub pnp: Option<&'a PnpIndex>,
 }
 
 impl<'a> Ctx<'a> {
+    /// Whether PNP4Nagios has a graph definition `<pnp_path>/<host>/<file>`
+    /// (`host`/`file` already passed through `pnp_cleanup`).
+    pub fn pnp_graph_present(&self, host_dir: &str, file: &str) -> bool {
+        match self.pnp {
+            Some(index) => index.contains(host_dir, file),
+            None => self.paths.pnp_path.as_ref().is_some_and(|p| file_exists(&p.join(host_dir).join(file))),
+        }
+    }
+
     pub fn host_visible(&self, h: &Host) -> bool {
         match self.auth {
             Auth::All => true,
@@ -95,6 +108,7 @@ pub enum Row<'a> {
     Comment(&'a Comment),
     Downtime(&'a Downtime),
     Log(&'a LogEntry),
+    StateHist(&'a statehist::HistRow),
     HostByGroup(&'a Host, &'a HostGroup),
     ServiceByGroup(&'a Service, &'a ServiceGroup),
     ServiceByHostGroup(&'a Service, &'a HostGroup),
@@ -112,6 +126,7 @@ impl<'a> Row<'a> {
             Row::Comment(c) => Some(w.host(w.host_of(c.target))),
             Row::Downtime(d) => Some(w.host(w.host_of(d.target))),
             Row::Log(l) => w.find_host(&l.host_name).map(|h| w.host(h)),
+            Row::StateHist(r) => w.find_host(&r.host_name).map(|h| w.host(h)),
             _ => None,
         }
     }
@@ -123,6 +138,9 @@ impl<'a> Row<'a> {
             Row::Service(s) | Row::ServiceByGroup(s, _) | Row::ServiceByHostGroup(s, _) => Some(s),
             Row::Comment(Comment { target: Target::Service(s), .. }) => Some(w.service(*s)),
             Row::Downtime(Downtime { target: Target::Service(s), .. }) => Some(w.service(*s)),
+            Row::StateHist(r) if !r.service_description.is_empty() => {
+                w.find_service(&r.host_name, &r.service_description).map(|s| w.service(s))
+            }
             Row::Log(l) if !l.service_description.is_empty() => {
                 w.find_service(&l.host_name, &l.service_description).map(|s| w.service(s))
             }
@@ -252,6 +270,7 @@ fn own_column(table: &str, name: &str) -> Option<Getter> {
         "comments" => comments::comment_column(name),
         "downtimes" => comments::downtime_column(name),
         "log" => log::column(name),
+        "statehist" => statehist::column(name),
         "status" => status::column(name),
         "columns" => misc::columns_column(name),
         "commands" => misc::command_column(name),
@@ -288,13 +307,82 @@ pub fn null_column(name: &str) -> Column {
 pub struct Preloaded {
     pub log: Vec<Arc<log::LogChunk>>,
     pub crash_reports: Vec<CrashReport>,
+    pub statehist: Vec<statehist::HistRow>,
+    pub pnp: Option<PnpIndex>,
 }
 
-/// Prepare table data that requires file I/O.
-pub fn preload(table: &str, paths: &Paths, period: (i64, i64)) -> Preloaded {
+/// Listing of the PNP4Nagios perfdata directory (`<pnp_path>/<host>/<service>.xml`).
+///
+/// Checking `pnpgraph_present` with one `stat()` per row while holding the world lock
+/// made large service queries slow and blocked the engine. Instead, the listing is
+/// taken before the lock and cached between queries: a host directory is only read
+/// again when its mtime changed (or was too recent to be trusted, see [`RACY_NS`]).
+#[derive(Debug, Default, Clone)]
+pub struct PnpIndex(Arc<HashMap<String, Arc<HostGraphs>>>);
+
+#[derive(Debug)]
+struct HostGraphs {
+    mtime: Option<std::time::SystemTime>,
+    xml: HashSet<String>,
+}
+
+/// A directory modified this recently may still change within the same timestamp tick
+/// (coarse kernel clock); such a listing is not reused.
+const RACY_NS: u128 = 2_000_000_000;
+
+static PNP_CACHE: parking_lot::Mutex<Option<(std::path::PathBuf, PnpIndex)>> = parking_lot::Mutex::new(None);
+
+impl PnpIndex {
+    /// Current listing of `pnp_path`, reusing unchanged host directories from the cache.
+    pub fn load(pnp_path: &Path) -> Self {
+        let previous = match &*PNP_CACHE.lock() {
+            Some((path, index)) if path == pnp_path => index.clone(),
+            _ => PnpIndex::default(),
+        };
+        let index = Self::refresh(pnp_path, &previous);
+        *PNP_CACHE.lock() = Some((pnp_path.to_path_buf(), index.clone()));
+        index
+    }
+
+    fn refresh(pnp_path: &Path, previous: &PnpIndex) -> Self {
+        let mut index = HashMap::new();
+        let Ok(hosts) = std::fs::read_dir(pnp_path) else { return PnpIndex::default() };
+        let now = std::time::SystemTime::now();
+        for host in hosts.flatten() {
+            let Ok(name) = host.file_name().into_string() else { continue };
+            let mtime = std::fs::metadata(host.path()).ok().filter(|m| m.is_dir()).and_then(|m| m.modified().ok());
+            let Some(mtime) = mtime else { continue };
+            let trusted = now.duration_since(mtime).is_ok_and(|age| age.as_nanos() > RACY_NS);
+            if let Some(cached) = previous.0.get(&name).filter(|c| trusted && c.mtime == Some(mtime)) {
+                index.insert(name, cached.clone());
+                continue;
+            }
+            let Ok(files) = std::fs::read_dir(host.path()) else { continue };
+            let xml: HashSet<String> = files
+                .flatten()
+                .filter(|f| f.file_type().is_ok_and(|t| t.is_file()))
+                .filter_map(|f| f.file_name().into_string().ok())
+                .filter(|n| n.ends_with(".xml"))
+                .collect();
+            index.insert(name, Arc::new(HostGraphs { mtime: trusted.then_some(mtime), xml }));
+        }
+        PnpIndex(Arc::new(index))
+    }
+
+    pub fn contains(&self, host_dir: &str, file: &str) -> bool {
+        self.0.get(host_dir).is_some_and(|h| h.xml.contains(file))
+    }
+}
+
+/// Prepare table data that requires file I/O. `needs_pnp`: the query uses a
+/// `pnpgraph_present` column.
+pub fn preload(table: &str, paths: &Paths, period: (i64, i64), needs_pnp: bool) -> Preloaded {
     let mut p = Preloaded::default();
+    if needs_pnp {
+        p.pnp = paths.pnp_path.as_deref().map(PnpIndex::load);
+    }
     match table {
-        "log" => p.log = log::load(paths, period),
+        "log" | "statehist" => p.log = log::load(paths, period),
         "crashreports" => p.crash_reports = misc::load_crash_reports(paths.crash_reports_path.as_deref()),
         _ => {}
     }
@@ -361,6 +449,11 @@ pub fn for_each_row<'a>(
                 }
             }
         }
+        "statehist" => each!(pre
+            .statehist
+            .iter()
+            .filter(|r| object_visible(ctx, &r.host_name, &r.service_description))
+            .map(Row::StateHist)),
         "hostsbygroup" => {
             for g in &w.hostgroups {
                 each!(g
@@ -398,6 +491,18 @@ pub fn for_each_row<'a>(
         "labels" => each!(labels.iter().map(Row::Label)),
         // statehist and the Event Console tables are not (yet) provided by corax
         _ => {}
+    }
+}
+
+/// Authorization for a host/service referenced by name; vanished objects are hidden
+/// from restricted users.
+fn object_visible(ctx: &Ctx<'_>, host: &str, service: &str) -> bool {
+    let w = ctx.world;
+    match ctx.auth {
+        Auth::All => true,
+        Auth::Nobody => false,
+        Auth::Contact(_) if service.is_empty() => w.find_host(host).is_some_and(|h| ctx.host_visible(w.host(h))),
+        Auth::Contact(_) => w.find_service(host, service).is_some_and(|s| ctx.service_visible(w.service(s))),
     }
 }
 

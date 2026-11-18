@@ -66,6 +66,21 @@ pub struct Query {
     pub error: Option<(u16, String)>,
 }
 
+impl Query {
+    /// Whether any column referenced by the query (output, filters, stats, ordering,
+    /// wait condition) satisfies `pred`.
+    pub fn uses_column(&self, pred: &dyn Fn(&Column) -> bool) -> bool {
+        self.columns.iter().any(pred)
+            || self.order_by.iter().any(|(c, _)| pred(c))
+            || self.filter.any_column(pred)
+            || self.wait_condition.as_ref().is_some_and(|f| f.any_column(pred))
+            || self.stats.iter().any(|s| match s {
+                StatsColumn::Count(f) => f.any_column(pred),
+                StatsColumn::Agg(_, c) => pred(c),
+            })
+    }
+}
+
 /// A request read from a client.
 pub enum Request {
     Get(Box<Query>),

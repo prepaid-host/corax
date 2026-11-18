@@ -271,3 +271,122 @@ fn dump_answers() {
         std::fs::write(PathBuf::from(&out).join(format!("{i:03}.out")), r.body).unwrap();
     }
 }
+
+/// Shared state whose `nagios.log` is the unmodified history of a real Nagios site.
+fn shared_with_reference_history(dir: &Path) -> Arc<Shared> {
+    let log_file = dir.join("nagios.log");
+    std::fs::copy(local_fixture("statehist-nagios.log"), &log_file).unwrap();
+    let paths = Paths { log_file: Some(log_file), log_archive_path: Some(dir.join("archive")), ..Default::default() };
+    let (shared, rx) = Shared::new(build_world(), paths);
+    std::mem::forget(rx);
+    shared
+}
+
+fn sorted_rows(json: &str) -> Vec<String> {
+    let v: serde_json::Value = serde_json::from_str(json).unwrap();
+    let mut rows: Vec<String> = v.as_array().unwrap().iter().map(|r| r.to_string()).collect();
+    rows.sort();
+    rows
+}
+
+/// The availability queries of the Checkmk GUI yield exactly what Nagios' Livestatus
+/// computed from the same history (`statehist-samples.json`).
+#[test]
+fn statehist_matches_reference_nagios() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = shared_with_reference_history(dir.path());
+    let samples: Vec<serde_json::Value> =
+        serde_json::Deserializer::from_str(&std::fs::read_to_string(local_fixture("statehist-samples.json")).unwrap())
+            .into_iter()
+            .map(Result::unwrap)
+            .collect();
+    assert_eq!(samples.len(), 2);
+
+    let hosts = run(
+        &s,
+        "GET statehist\nColumns: host_name service_description duration from until state host_down in_downtime \
+         in_host_downtime in_notification_period in_service_period is_flapping\nFilter: time >= 1794960000\n\
+         Filter: time < 1795008912\nFilter: service_description =\nTimelimit: 30\nOutputFormat: json\n\n",
+    );
+    assert_eq!(sorted_rows(&hosts), sorted_rows(&samples[0].to_string()));
+
+    let svc = run(
+        &s,
+        "GET statehist\nColumns: host_name service_description from until duration duration_part state log_output\n\
+         Filter: time >= 1794960000\nFilter: time < 1795008912\nFilter: service_description = Memory\n\
+         Filter: host_name = db01\nOutputFormat: json\n\n",
+    );
+    let got: serde_json::Value = serde_json::from_str(&svc).unwrap();
+    let want = &samples[1];
+    assert_eq!(got.as_array().unwrap().len(), want.as_array().unwrap().len(), "{svc}");
+    for (g, w) in got.as_array().unwrap().iter().zip(want.as_array().unwrap()) {
+        for i in [0, 1, 2, 3, 4, 6, 7] {
+            assert_eq!(g[i], w[i], "{svc}");
+        }
+        assert!((g[5].as_f64().unwrap() - w[5].as_f64().unwrap()).abs() < 1e-5, "{svc}");
+    }
+}
+
+#[test]
+fn statehist_stats_and_auth() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = shared_with_reference_history(dir.path());
+    // availability summary per host: sum of durations covers the whole period
+    let out = run(
+        &s,
+        "GET statehist\nColumns: host_name\nFilter: time >= 1794960000\nFilter: time < 1795008912\n\
+         Filter: service_description =\nStats: sum duration\nStats: sum duration_ok\nStats: sum duration_unmonitored\n\
+         OutputFormat: python3\n\n",
+    );
+    assert_eq!(
+        out,
+        "[[\"db01\",48911,5093,43818],\n[\"localhost\",48911,5093,43818],\n[\"web01\",48911,5093,43818]]\n"
+    );
+    let none = run(&s, "GET statehist\nColumns: host_name\nFilter: time >= 1794960000\nAuthUser: nosuchuser\n\n");
+    assert_eq!(none, "");
+    // no time filter: the period ends now and starts at the epoch
+    let all = run(&s, "GET statehist\nColumns: state\nStats: state >= -1\nOutputFormat: python3\n\n");
+    assert_ne!(all, "[[0]]\n");
+}
+
+/// `pnpgraph_present` is answered from a directory listing taken before the world lock;
+/// output columns, filters, stats and joined `host_` columns must all see it.
+#[test]
+fn pnpgraph_present_from_directory_index() {
+    let dir = tempfile::tempdir().unwrap();
+    let pnp = dir.path().join("perfdata");
+    std::fs::create_dir_all(pnp.join("db01")).unwrap();
+    std::fs::write(pnp.join("db01/_HOST_.xml"), "").unwrap();
+    std::fs::write(pnp.join("db01/Memory.xml"), "").unwrap();
+    std::fs::write(pnp.join("db01/CPU_utilization.rrd"), "").unwrap();
+    std::fs::create_dir_all(pnp.join("db01/Uptime.xml")).unwrap(); // a directory is no graph
+    let log_file = dir.path().join("nagios.log");
+    std::fs::copy(local_fixture("nagios.log"), &log_file).unwrap();
+    let paths = Paths { log_file: Some(log_file), pnp_path: Some(pnp.clone()), ..Default::default() };
+    let (s, rx) = Shared::new(build_world(), paths);
+    std::mem::forget(rx);
+
+    let hosts = run(&s, "GET hosts\nColumns: name pnpgraph_present\nFilter: name = db01\n\n");
+    assert_eq!(hosts, "db01;1\n");
+    let services = run(
+        &s,
+        "GET services\nColumns: description pnpgraph_present host_pnpgraph_present\nFilter: host_name = db01\n\
+         Filter: description = Memory\nFilter: description = Uptime\nOr: 2\n\n",
+    );
+    assert_eq!(sorted_lines(&services), ["Memory;1;1", "Uptime;0;1"]);
+    let filtered = run(&s, "GET services\nColumns: host_name description\nFilter: pnpgraph_present = 1\n\n");
+    assert_eq!(filtered, "db01;Memory\n");
+    let stats = run(&s, "GET services\nStats: pnpgraph_present = 1\n\n");
+    assert_eq!(stats, "1\n");
+
+    // The cached listing notices graphs created later.
+    std::fs::write(pnp.join("db01/CPU_utilization.xml"), "").unwrap();
+    let stats = run(&s, "GET services\nStats: pnpgraph_present = 1\n\n");
+    assert_eq!(stats, "2\n");
+}
+
+fn sorted_lines(s: &str) -> Vec<&str> {
+    let mut v: Vec<&str> = s.lines().collect();
+    v.sort();
+    v
+}

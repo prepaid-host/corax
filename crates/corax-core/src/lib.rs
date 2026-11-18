@@ -22,6 +22,7 @@ pub mod model;
 pub mod nagioslog;
 pub mod notify;
 pub mod perfdata;
+pub mod rates;
 pub mod retention;
 pub mod scheduler;
 pub mod spool;

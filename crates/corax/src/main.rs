@@ -13,6 +13,12 @@ mod daemon;
 
 use std::process::ExitCode;
 
+/// musl's allocator serializes on a global lock and is several times slower than glibc's;
+/// large Livestatus answers built on concurrent threads made that the bottleneck of the
+/// static binary.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() -> ExitCode {
     let args = match cli::Args::parse(std::env::args().skip(1)) {
         Ok(a) => a,

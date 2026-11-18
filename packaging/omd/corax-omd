@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# corax-omd — switch a Checkmk Community (OMD) site between Nagios and corax.
+#
+# Run as the site user (`omd su <site>`):
+#
+#   corax-omd install [--binary PATH]   install corax and use it as the monitoring core
+#   corax-omd uninstall                 switch back to Nagios (corax binary is kept)
+#   corax-omd status                    show which core the site uses
+#
+# What it does: corax reads exactly the files Nagios reads, so the only change to the
+# site is the core binary used by ~/etc/init.d/nagios. The original init script is
+# backed up and restored on uninstall. Nothing outside the site is touched.
+
+set -euo pipefail
+
+die() { echo "corax-omd: $*" >&2; exit 1; }
+
+[ -n "${OMD_ROOT:-}" ] && [ -n "${OMD_SITE:-}" ] || die "must be run as an OMD site user (try: omd su <site>)"
+
+INIT="$OMD_ROOT/etc/init.d/nagios"
+BACKUP="$INIT.corax-backup"
+TARGET="$OMD_ROOT/local/bin/corax"
+MARKER="# corax: managed by corax-omd"
+
+is_installed() { grep -q "^$MARKER" "$INIT" 2>/dev/null; }
+
+core_of_site() {
+    # shellcheck source=/dev/null
+    . "$OMD_ROOT/etc/omd/site.conf"
+    echo "${CONFIG_CORE:-unknown}"
+}
+
+core_running() { omd status nagios >/dev/null 2>&1; }
+
+cmd_install() {
+    local binary=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --binary) binary="${2:-}"; shift 2 ;;
+            *) die "unknown option $1" ;;
+        esac
+    done
+    if [ -z "$binary" ]; then
+        binary="$(command -v corax || true)"
+        [ -z "$binary" ] && [ -x "$(dirname "$0")/corax" ] && binary="$(dirname "$0")/corax"
+    fi
+    [ -n "$binary" ] && [ -x "$binary" ] || die "corax binary not found (use --binary PATH)"
+    [ "$(core_of_site)" = "nagios" ] || die "site core is '$(core_of_site)', corax replaces 'nagios' only (omd config set CORE nagios)"
+    [ -f "$INIT" ] || die "$INIT not found"
+
+    echo "Verifying the current site configuration with corax..."
+    if [ -f "$OMD_ROOT/tmp/nagios/nagios.cfg" ]; then
+        "$binary" -v "$OMD_ROOT/tmp/nagios/nagios.cfg" >/dev/null || {
+            "$binary" -v "$OMD_ROOT/tmp/nagios/nagios.cfg" || true
+            die "corax cannot load this site's configuration; nothing was changed"
+        }
+    fi
+
+    mkdir -p "$OMD_ROOT/local/bin"
+    if [ "$(readlink -f "$binary")" != "$(readlink -f "$TARGET" 2>/dev/null || true)" ]; then
+        install -m 0755 "$binary" "$TARGET.new"
+        mv -f "$TARGET.new" "$TARGET"
+    fi
+
+    # Stop the running core with the *current* init script: once BIN= changes, the
+    # script can no longer find (and stop) a process started from the old binary.
+    local was_running=0
+    if core_running; then
+        was_running=1
+        echo "Stopping the monitoring core..."
+        omd stop nagios
+    fi
+
+    if ! is_installed; then
+        cp -p "$INIT" "$BACKUP"
+        # Replace the core binary, keep everything else of the OMD init script.
+        sed -e "s|^BIN=.*|BIN=\"$TARGET\"|" \
+            -e "0,/^cd /s|^cd |$MARKER (backup: ${BACKUP##*/})\ncd |" \
+            "$BACKUP" >"$INIT.new"
+        chmod --reference="$BACKUP" "$INIT.new"
+        mv -f "$INIT.new" "$INIT"
+    fi
+    grep -q "^BIN=\"$TARGET\"" "$INIT" || die "could not patch $INIT"
+    echo "corax installed: $("$TARGET" --version)"
+    if [ "$was_running" = 1 ]; then
+        omd start nagios
+    else
+        echo "The site is stopped; corax will be used on the next 'omd start'."
+    fi
+}
+
+cmd_uninstall() {
+    is_installed || { echo "corax is not active on site $OMD_SITE"; exit 0; }
+    [ -f "$BACKUP" ] || die "backup $BACKUP is missing; restore $INIT from the OMD skeleton (omd diff / omd update)"
+    # Stop corax with the patched script, start Nagios with the original one.
+    omd stop nagios >/dev/null 2>&1 || true
+    mv -f "$BACKUP" "$INIT"
+    echo "Switched site $OMD_SITE back to Nagios (corax binary kept at $TARGET)."
+    omd start nagios
+}
+
+cmd_status() {
+    if is_installed; then
+        echo "site $OMD_SITE: core = corax ($("$TARGET" --version 2>/dev/null || echo 'binary missing'))"
+    else
+        echo "site $OMD_SITE: core = $(core_of_site) (corax not installed)"
+    fi
+    omd status nagios || true
+}
+
+case "${1:-}" in
+    install) shift; cmd_install "$@" ;;
+    uninstall) cmd_uninstall ;;
+    status) cmd_status ;;
+    *) sed -n '4,15p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

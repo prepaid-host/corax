@@ -1,0 +1,23 @@
+[package]
+name = "corax-core"
+description = "Runtime state, scheduler, check execution and event processing for corax"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+corax-config.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+parking_lot.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+libc.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

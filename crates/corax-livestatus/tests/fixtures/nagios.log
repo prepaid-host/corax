@@ -1,0 +1,19 @@
+[1795003727] Nagios 3.5.1 starting... (PID=907)
+[1795003727] LOG VERSION: 2.0
+[1795003727] livestatus: starting main thread and 20 client threads
+[1795003817] Caught SIGHUP, restarting...
+[1795003818] Nagios 3.5.1 starting... (PID=908)
+[1795003818] LOG VERSION: 2.0
+[1795003818] INITIAL HOST STATE: db01;UP;HARD;1;
+[1795003818] INITIAL HOST STATE: localhost;UP;HARD;1;
+[1795003818] INITIAL HOST STATE: web01;UP;HARD;1;
+[1795003818] livestatus: starting main thread and 20 client threads
+[1795003860] EXTERNAL COMMAND: SCHEDULE_HOST_DOWNTIME;web01;1795003200;1795089600;1;0;0;cmkadmin;maint
+[1795003860] HOST DOWNTIME ALERT: web01;STARTED; Host has entered a period of scheduled downtime
+[1795003860] HOST NOTIFICATION: check-mk-notify;web01;DOWNTIMESTART (UP);check-mk-notify;OK - 127.0.0.1 rta 0.011ms lost 0%
+[1795003861] EXTERNAL COMMAND: ADD_HOST_COMMENT;db01;0;cmkadmin;hello
+[1795004020] SERVICE ALERT: db01;Check_MK Discovery;WARNING;HARD;1;Services unmonitored: 7 (ps: 7)(!), Host labels: all up to date, execution time 0.0 sec
+[1795004020] SERVICE NOTIFICATION: check-mk-notify;db01;Check_MK Discovery;WARNING;check-mk-notify;Services unmonitored: 7 (ps: 7)(!), Host labels: all up to date, execution time 0.0 sec
+[1795004054] SERVICE ALERT: localhost;Check_MK Discovery;WARNING;HARD;1;Services unmonitored: 7 (ps: 7)(!), Host labels: all up to date, execution time 0.0 sec
+[1795004054] SERVICE NOTIFICATION: check-mk-notify;localhost;Check_MK Discovery;WARNING;check-mk-notify;Services unmonitored: 7 (ps: 7)(!), Host labels: all up to date, execution time 0.0 sec
+[1795004087] SERVICE ALERT: web01;Check_MK Discovery;WARNING;HARD;1;Services unmonitored: 7 (ps: 7)(!), Host labels: all up to date, execution time 0.0 sec

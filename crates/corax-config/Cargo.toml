@@ -1,0 +1,16 @@
+[package]
+name = "corax-config"
+description = "Parser and resolver for Nagios-style main and object configuration"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

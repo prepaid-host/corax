@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "GPL-2.0-or-later"
+repository = "https://github.com/prepaid-host/corax"
+authors = ["corax contributors"]
+
+[workspace.dependencies]
+corax-config = { path = "crates/corax-config", version = "0.1.0" }
+corax-core = { path = "crates/corax-core", version = "0.1.0" }
+corax-livestatus = { path = "crates/corax-livestatus", version = "0.1.0" }
+anyhow = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "process", "signal", "sync", "time", "fs"] }
+parking_lot = "0.12"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+regex = "1"
+libc = "0.2"
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true

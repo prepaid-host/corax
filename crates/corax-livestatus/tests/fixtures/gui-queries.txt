@@ -1,0 +1,380 @@
+GET status
+Columns: livestatus_version program_version program_start num_hosts num_services max_long_output_size core_pid edition
+Localtime: 1795003845
+OutputFormat: python3
+KeepAlive: on
+ResponseHeader: fixed16
+
+GET hosts
+Columns: host_accept_passive_checks host_acknowledged host_action_url_expanded host_active_checks_enabled host_address host_alias host_check_command host_check_type host_comments_with_extra_info host_custom_variable_names host_custom_variable_values host_downtimes host_downtimes_with_extra_info host_filename host_has_been_checked host_icon_image host_in_check_period host_in_notification_period host_in_service_period host_is_flapping host_labels host_modified_attributes_list host_name host_notes_url_expanded host_notifications_enabled host_num_services_crit host_num_services_ok host_num_services_pending host_num_services_unknown host_num_services_warn host_perf_data host_pnpgraph_present host_scheduled_downtime_depth host_staleness host_state
+Localtime: 1795003845
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 1001
+
+GET hosts
+Columns: filename
+Stats: state >= 0
+Localtime: 1795003845
+OutputFormat: python3
+KeepAlive: on
+ResponseHeader: fixed16
+
+GET services
+Columns: host_address host_alias host_check_command host_check_type host_custom_variable_names host_custom_variable_values host_downtimes_with_extra_info host_filename host_has_been_checked host_labels host_name host_scheduled_downtime_depth host_state service_accept_passive_checks service_acknowledged service_action_url_expanded service_active_checks_enabled service_cache_interval service_cached_at service_check_command service_check_type service_comments_with_extra_info service_custom_variable_names service_custom_variable_values service_custom_variables service_description service_downtimes service_downtimes_with_extra_info service_has_been_checked service_host_name service_icon_image service_in_check_period service_in_notification_period service_in_passive_check_period service_in_service_period service_is_flapping service_last_check service_last_state_change service_modified_attributes_list service_notes_url_expanded service_notifications_enabled service_perf_data service_plugin_output service_pnpgraph_present service_scheduled_downtime_depth service_service_description service_staleness service_state
+Filter: host_name = db01
+Localtime: 1795003846
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 1001
+
+GET hosts
+Columns: host_structured_status
+Filter: host_name = db01
+Localtime: 1795003846
+OutputFormat: python3
+KeepAlive: on
+ResponseHeader: fixed16
+
+GET services
+Columns: host_address host_alias host_check_command host_check_type host_custom_variable_names host_custom_variable_values host_downtimes_with_extra_info host_filename host_has_been_checked host_labels host_name host_scheduled_downtime_depth host_state service_accept_passive_checks service_acknowledged service_action_url_expanded service_active_checks_enabled service_cache_interval service_cached_at service_check_command service_check_interval service_check_type service_comments_with_extra_info service_contact_groups service_contacts service_current_attempt service_current_notification_number service_custom_variable_names service_custom_variable_values service_custom_variables service_description service_downtimes service_downtimes_with_extra_info service_execution_time service_groups service_has_been_checked service_host_name service_icon_image service_in_check_period service_in_notification_period service_in_passive_check_period service_in_service_period service_is_flapping service_label_sources service_labels service_last_check service_last_notification service_last_state_change service_last_time_ok service_latency service_long_plugin_output service_max_check_attempts service_metrics service_modified_attributes_list service_next_check service_next_notification service_notes_url_expanded service_notification_period service_notification_postponement_reason service_notifications_enabled service_perf_data service_plugin_output service_pnpgraph_present service_retry_interval service_scheduled_downtime_depth service_service_description service_staleness service_state
+Filter: service_description = Memory
+Filter: host_name = db01
+Localtime: 1795003846
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 1001
+
+GET services
+Columns: perf_data metrics check_command
+Filter: host_name = db01
+Filter: service_description = Memory
+Localtime: 1795003846
+OutputFormat: python3
+KeepAlive: on
+ResponseHeader: fixed16
+ColumnHeaders: off
+
+GET services
+Columns: host_address host_alias host_check_command host_check_type host_custom_variable_names host_custom_variable_values host_downtimes_with_extra_info host_filename host_has_been_checked host_labels host_name host_scheduled_downtime_depth host_state service_accept_passive_checks service_acknowledged service_action_url_expanded service_active_checks_enabled service_cache_interval service_cached_at service_check_command service_check_type service_comments_with_extra_info service_custom_variable_names service_custom_variable_values service_custom_variables service_description service_downtimes service_downtimes_with_extra_info service_has_been_checked service_host_name service_icon_image service_in_check_period service_in_notification_period service_in_passive_check_period service_in_service_period service_is_flapping service_last_check service_last_state_change service_modified_attributes_list service_notes_url_expanded service_notifications_enabled service_perf_data service_plugin_output service_pnpgraph_present service_scheduled_downtime_depth service_service_description service_staleness service_state
+Filter: service_state = 0
+Filter: service_has_been_checked = 1
+And: 2
+Negate:
+Filter: service_has_been_checked = 1
+Filter: service_scheduled_downtime_depth = 0
+Filter: host_scheduled_downtime_depth = 0
+And: 2
+Filter: host_state = 1
+Filter: host_has_been_checked = 1
+And: 2
+Negate:
+Filter: host_state = 2
+Filter: host_has_been_checked = 1
+And: 2
+Negate:
+Localtime: 1795003846
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 1001
+
+GET hosts
+Columns: host_accept_passive_checks host_acknowledged host_action_url_expanded host_active_checks_enabled host_address host_alias host_check_command host_check_type host_comments_with_extra_info host_custom_variable_names host_custom_variable_values host_downtimes host_downtimes_with_extra_info host_filename host_has_been_checked host_icon_image host_in_check_period host_in_notification_period host_in_service_period host_is_flapping host_labels host_modified_attributes_list host_name host_notes_url_expanded host_notifications_enabled host_num_services_crit host_num_services_ok host_num_services_pending host_num_services_unknown host_num_services_warn host_perf_data host_pnpgraph_present host_scheduled_downtime_depth host_staleness host_state
+Filter: host_state = 0
+Filter: host_has_been_checked = 1
+And: 2
+Negate:
+Filter: host_has_been_checked = 1
+Filter: host_scheduled_downtime_depth = 0
+Localtime: 1795003846
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 1001
+
+GET hostgroups
+Columns: hostgroup_alias hostgroup_name hostgroup_num_hosts_down hostgroup_num_hosts_pending hostgroup_num_hosts_unreach hostgroup_num_hosts_up hostgroup_num_services_crit hostgroup_num_services_ok hostgroup_num_services_pending hostgroup_num_services_unknown hostgroup_num_services_warn
+Filter: hostgroup_num_hosts > 0
+Localtime: 1795003846
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 1001
+
+GET services
+Columns: host_address host_alias host_check_command host_check_type host_custom_variable_names host_custom_variable_values host_downtimes_with_extra_info host_filename host_has_been_checked host_labels host_name host_scheduled_downtime_depth host_state service_accept_passive_checks service_acknowledged service_action_url_expanded service_active_checks_enabled service_cache_interval service_cached_at service_check_command service_check_type service_comments_with_extra_info service_custom_variable_names service_custom_variable_values service_custom_variables service_description service_downtimes service_downtimes_with_extra_info service_has_been_checked service_host_name service_icon_image service_in_check_period service_in_notification_period service_in_passive_check_period service_in_service_period service_is_flapping service_last_check service_last_state_change service_modified_attributes_list service_notes_url_expanded service_notifications_enabled service_perf_data service_plugin_output service_pnpgraph_present service_scheduled_downtime_depth service_service_description service_staleness service_state
+Localtime: 1795003846
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 1001
+
+GET servicegroups
+Columns: name alias
+Localtime: 1795003846
+OutputFormat: python3
+KeepAlive: on
+ResponseHeader: fixed16
+
+GET comments
+Columns: comment_author comment_comment comment_entry_time comment_entry_type comment_expire_time comment_id comment_type host_has_been_checked host_labels host_name host_scheduled_downtime_depth host_state service_description service_has_been_checked service_state
+Localtime: 1795003846
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 1001
+
+GET downtimes
+Columns: downtime_author downtime_comment downtime_duration downtime_end_time downtime_entry_time downtime_fixed downtime_id downtime_is_service downtime_origin downtime_start_time host_has_been_checked host_labels host_name host_scheduled_downtime_depth host_state service_description service_has_been_checked service_state
+Localtime: 1795003846
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 1001
+
+GET log
+Columns: host_has_been_checked host_labels host_name host_scheduled_downtime_depth host_state log_command_name log_comment log_lineno log_plugin_output log_state log_state_info log_state_type log_time log_type service_description
+Filter: log_time >= 1794399046
+Filter: class = 1
+Filter: class = 3
+Filter: class = 8
+Or: 3
+Localtime: 1795003846
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 1001
+
+GET log
+Columns: host_has_been_checked host_labels host_name host_scheduled_downtime_depth host_state log_command_name log_comment log_contact_name log_lineno log_plugin_output log_service_description log_state log_state_type log_time log_type service_description
+Filter: log_time >= 1787227846
+Filter: class = 3
+Localtime: 1795003846
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 1001
+
+GET log
+Columns: host_has_been_checked host_labels host_name host_scheduled_downtime_depth host_state log_command_name log_comment log_lineno log_plugin_output log_state log_state_info log_state_type log_time log_type service_description
+Filter: log_time >= 1794399046
+Filter: host_name = db01
+Filter: class = 1
+Filter: class = 3
+Filter: class = 8
+Or: 3
+Localtime: 1795003846
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 1001
+
+GET hosts
+Stats: state >= 0
+Stats: state > 0
+Stats: scheduled_downtime_depth = 0
+StatsAnd: 2
+Stats: state > 0
+Stats: scheduled_downtime_depth = 0
+Stats: acknowledged = 0
+StatsAnd: 3
+Stats: host_staleness >= 1.5
+Stats: host_scheduled_downtime_depth = 0
+StatsAnd: 2
+Localtime: 1795003847
+OutputFormat: python3
+KeepAlive: on
+ResponseHeader: fixed16
+
+GET services
+Stats: state >= 0
+Stats: state > 0
+Stats: scheduled_downtime_depth = 0
+Stats: host_scheduled_downtime_depth = 0
+Stats: host_state = 0
+StatsAnd: 4
+Stats: state > 0
+Stats: scheduled_downtime_depth = 0
+Stats: host_scheduled_downtime_depth = 0
+Stats: acknowledged = 0
+Stats: host_state = 0
+StatsAnd: 5
+Stats: service_staleness >= 1.5
+Stats: host_scheduled_downtime_depth = 0
+Stats: service_scheduled_downtime_depth = 0
+Stats: host_state = 0
+StatsAnd: 4
+Localtime: 1795003847
+OutputFormat: python3
+KeepAlive: on
+ResponseHeader: fixed16
+
+GET eventconsoleevents
+Stats: event_phase = open
+Stats: event_phase = ack
+StatsOr: 2
+Stats: event_phase = open
+Stats: event_phase = ack
+StatsOr: 2
+Stats: event_state != 0
+StatsAnd: 2
+Stats: event_phase = open
+Stats: event_state != 0
+Stats: event_host_in_downtime != 1
+StatsAnd: 3
+Localtime: 1795003847
+OutputFormat: python3
+KeepAlive: on
+ResponseHeader: fixed16
+
+GET log
+Stats: log_state != 0
+Filter: class = 3
+Filter: log_type = SERVICE NOTIFICATION RESULT
+Filter: log_type = HOST NOTIFICATION RESULT
+Or: 2
+Filter: time >= 1795003847
+Filter: time > 1794399047
+Localtime: 1795003847
+OutputFormat: python3
+KeepAlive: on
+ResponseHeader: fixed16
+
+GET status
+Columns: enable_notifications execute_service_checks execute_host_checks enable_flap_detection enable_event_handlers process_performance_data enable_event_handlers
+Localtime: 1795003847
+OutputFormat: python3
+KeepAlive: on
+ResponseHeader: fixed16
+
+GET services
+Columns: host_has_been_checked host_labels host_name host_state long_plugin_output
+Filter: check_command = check-mk-inventory
+Localtime: 1795003847
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 1001
+
+GET log
+Columns: host_labels log_command_name log_comment log_lineno log_plugin_output log_state log_state_info log_state_type log_time log_type
+Filter: log_time >= 1789819847
+Filter: log_type ~~ (HOST|SERVICE) DOWNTIME ALERT
+Filter: class = 1
+Filter: class = 3
+Filter: class = 8
+Or: 3
+Localtime: 1795003847
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 1001
+
+GET log
+Columns: host_labels log_command_name log_comment log_lineno log_plugin_output log_state log_state_info log_state_type log_time log_type
+Filter: log_time >= 1789819847
+Filter: log_type ~~ HOST DOWNTIME ALERT
+Filter: class = 1
+Filter: class = 3
+Filter: class = 8
+Or: 3
+Localtime: 1795003847
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 1001
+
+GET hosts
+Columns: host_downtimes host_has_been_checked host_inventory host_labels host_name host_scheduled_downtime_depth host_state host_structured_status service_check_command service_perf_data service_plugin_output service_pnpgraph_present service_staleness service_state
+Localtime: 1795003847
+OutputFormat: python3
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 1001
+
+GET services
+Columns: host_has_been_checked host_name host_state service_check_command service_description service_perf_data service_plugin_output service_pnpgraph_present service_staleness service_state
+Filter: service_description = CPU load
+Filter: service_description = CPU utilization
+Or: 2
+Localtime: 1795003847
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+
+GET crashreports
+Columns: id component
+Localtime: 1795003847
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+
+GET services
+Columns: host_address host_alias host_check_command host_check_type host_custom_variable_names host_custom_variable_values host_downtimes_with_extra_info host_filename host_has_been_checked host_labels host_name host_scheduled_downtime_depth host_state service_accept_passive_checks service_acknowledged service_action_url_expanded service_active_checks_enabled service_cache_interval service_cached_at service_check_command service_check_type service_comments_with_extra_info service_custom_variable_names service_custom_variable_values service_custom_variables service_description service_downtimes service_downtimes_with_extra_info service_execution_time service_has_been_checked service_host_name service_icon_image service_in_check_period service_in_notification_period service_in_passive_check_period service_in_service_period service_is_flapping service_last_check service_last_state_change service_modified_attributes_list service_notes_url_expanded service_notifications_enabled service_perf_data service_plugin_output service_pnpgraph_present service_scheduled_downtime_depth service_service_description service_staleness service_state
+Filter: service_active_checks_enabled != 0
+Localtime: 1795003847
+OutputFormat: json
+KeepAlive: on
+ResponseHeader: fixed16
+Limit: 1001
+
+GET hosts
+Columns: name state labels
+Localtime: 1795003859
+OutputFormat: python3
+KeepAlive: on
+ResponseHeader: fixed16
+
+GET services
+Columns: host_name description state
+Localtime: 1795003860
+OutputFormat: python3
+KeepAlive: on
+ResponseHeader: fixed16
+
+GET hosts
+Columns: name
+Filter: name = web01
+Localtime: 1795003860
+OutputFormat: python3
+KeepAlive: on
+ResponseHeader: fixed16
+
+GET hosts
+Columns: name
+Filter: name = db01
+Localtime: 1795003860
+OutputFormat: python3
+KeepAlive: on
+ResponseHeader: fixed16
+
+GET services
+Columns: host_name description state
+Filter: host_name = db01
+Filter: description = Memory
+And: 2
+Localtime: 1795003860
+OutputFormat: python3
+KeepAlive: on
+ResponseHeader: fixed16
+
+GET downtimes
+Columns: id host_name service_description is_service author start_time end_time recurring comment fixed duration
+Localtime: 1795003861
+OutputFormat: python3
+KeepAlive: on
+ResponseHeader: fixed16
+
+GET hosts
+Filter: host_name = web01
+Columns: contacts
+Localtime: 1795003861
+OutputFormat: python3
+KeepAlive: on
+ResponseHeader: fixed16
+ColumnHeaders: off
+

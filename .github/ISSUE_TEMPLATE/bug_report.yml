@@ -1,0 +1,30 @@
+name: Bug report
+description: Something does not work like with the Nagios core
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Output of `corax --version` and `omd version`
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: From `~/var/nagios/corax.log` and `~/var/nagios/nagios.log`. Please remove host names or other sensitive data.
+      render: text
+  - type: textarea
+    id: livestatus
+    attributes:
+      label: Livestatus query (if applicable)
+      description: The query and the differing answers of corax and Nagios.
+      render: text

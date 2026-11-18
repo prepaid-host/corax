@@ -33,7 +33,7 @@ jobs:
           cp target/${{ matrix.target }}/release/corax packaging/omd/corax-omd README.md LICENSE "$dir/"
           tar czf "$dir.tar.gz" "$dir"
           sha256sum "$dir.tar.gz" > "$dir.tar.gz.sha256"
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             corax-*.tar.gz

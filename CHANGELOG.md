@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-20
+
 ### Added
 
 - Livestatus `rrddata` and `host_rrddata` columns: historic metrics from the PNP4Nagios

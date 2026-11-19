@@ -337,7 +337,10 @@ impl Query {
             }
             "Columns" => {
                 for name in value.split_whitespace() {
-                    let col = tables::column(&table, name).unwrap_or_else(|_| tables::null_column(name));
+                    let col = match tables::dynamic_column(&table, name) {
+                        Some(dynamic) => dynamic?,
+                        None => tables::column(&table, name).unwrap_or_else(|_| tables::null_column(name)),
+                    };
                     self.columns.push(col);
                 }
                 *explicit_headers = Some(false);

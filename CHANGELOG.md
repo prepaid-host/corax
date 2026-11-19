@@ -8,6 +8,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Livestatus `rrddata` and `host_rrddata` columns: historic metrics from the PNP4Nagios
+  RRDs via rrdcached. The Checkmk GUI needs them for every graph, predictive levels
+  need them for their history.
+
+## [0.1.0] - 2026-11-19
+
+### Added
+
 - Nagios 3 compatible configuration loader (templates, additive inheritance, custom
   variables, groups, time periods with date exceptions).
 - Engine with soft/hard state machine, flap detection, acknowledgements, comments,

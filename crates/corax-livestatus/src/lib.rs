@@ -18,6 +18,7 @@ mod filter;
 mod labels;
 mod query;
 mod render;
+mod rrd;
 mod schema;
 mod server;
 mod tables;

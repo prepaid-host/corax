@@ -345,6 +345,9 @@ pub fn run_query(shared: &Shared, q: &Query) -> Response {
             out.push(values);
         }
     }
+    // rrddata needs file and socket I/O: done here, without holding the world lock.
+    let data_rows = usize::from(q.column_headers);
+    crate::rrd::resolve(&paths, &q.columns, &mut out[data_rows..]);
     let body = render::render(q.output, q.separators, &out);
     Response { status: status::OK, body, fixed16: q.fixed16, keepalive: q.keepalive, has_output: true }
 }

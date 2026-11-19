@@ -167,6 +167,9 @@ pub struct Column {
     pub canonical: &'static str,
     pub ty: ColumnType,
     pub get: Getter,
+    /// Set for dynamic `rrddata` columns: the getter yields the object key, which
+    /// [`crate::rrd::resolve`] replaces with the data once the world lock is released.
+    pub rrd: Option<Arc<crate::rrd::RrdArgs>>,
 }
 
 /// Something a table row can be joined with.
@@ -271,16 +274,61 @@ pub struct NoSuchColumn(pub String);
 /// whether that is fatal: filters are strict, `Columns:` renders `null`).
 pub fn column(table: &str, name: &str) -> Result<Column, NoSuchColumn> {
     match schema::resolve(table, name) {
-        Ok(def) => {
-            Ok(Column { name: name.to_string(), canonical: def.name, ty: def.ty, get: build_getter(table, def) })
-        }
+        Ok(def) => Ok(Column {
+            name: name.to_string(),
+            canonical: def.name,
+            ty: def.ty,
+            get: build_getter(table, def),
+            rrd: None,
+        }),
         Err(stripped) => Err(NoSuchColumn(stripped)),
     }
 }
 
 /// A column that renders `null` (unknown column in `Columns:`, like Livestatus).
 pub fn null_column(name: &str) -> Column {
-    Column { name: name.to_string(), canonical: "", ty: ColumnType::String, get: null_getter() }
+    Column { name: name.to_string(), canonical: "", ty: ColumnType::String, get: null_getter(), rrd: None }
+}
+
+/// Resolve a dynamic column (`rrddata:TITLE:ARGUMENTS`, `host_rrddata:...` in the
+/// service tables). Returns `None` if `name` is not a dynamic column reference.
+pub fn dynamic_column(table: &str, name: &str) -> Option<Result<Column, String>> {
+    let prefix = schema::name_prefix(table);
+    let mut stripped = name;
+    if !prefix.is_empty() {
+        while let Some(rest) = stripped.strip_prefix(prefix) {
+            stripped = rest;
+        }
+    }
+    let (dynamic, rest) = stripped.split_once(':')?;
+    Some(rrd_column(table, dynamic, rest))
+}
+
+fn rrd_column(table: &str, dynamic: &str, rest: &str) -> Result<Column, String> {
+    let entity = match (table, dynamic) {
+        ("hosts" | "hostsbygroup", "rrddata") => Entity::Host,
+        ("services" | "servicesbygroup" | "servicesbyhostgroup", "rrddata") => Entity::Service,
+        ("services" | "servicesbygroup" | "servicesbyhostgroup", "host_rrddata") => Entity::Host,
+        _ => return Err(format!("table '{table}' has no dynamic column '{dynamic}'")),
+    };
+    let (title, arguments) =
+        rest.split_once(':').ok_or_else(|| format!("missing separator in dynamic column '{dynamic}'"))?;
+    if title.is_empty() {
+        return Err(format!("empty column name for dynamic column '{dynamic}'"));
+    }
+    let args =
+        crate::rrd::RrdArgs::parse(arguments).map_err(|e| format!("invalid arguments for column '{dynamic}': {e}"))?;
+    let get = match entity {
+        Entity::Host => getter(|c, r| {
+            r.host(c).map(|h| crate::rrd::object_key(&h.cfg.name, crate::rrd::HOST_SERVICE)).unwrap_or(Value::Null)
+        }),
+        _ => getter(|c, r| {
+            r.service(c)
+                .map(|s| crate::rrd::object_key(&c.world.host(s.host).cfg.name, &s.cfg.description))
+                .unwrap_or(Value::Null)
+        }),
+    };
+    Ok(Column { name: title.to_string(), canonical: "", ty: ColumnType::List, get, rrd: Some(Arc::new(args)) })
 }
 
 /// Data that must be loaded before taking the world lock.

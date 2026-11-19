@@ -91,7 +91,7 @@ variables) are accepted and ignored: the configuration is owned by Checkmk.
 | Headers `Columns`, `Filter`, `And`/`Or`/`Negate`, `Stats*`, group-by, `Limit`, `OrderBy`, `OutputFormat` (json, python, python3, csv, default), `Separators`, `ColumnHeaders`, `ResponseHeader: fixed16`, `KeepAlive`, `AuthUser`, `Wait*` | ✅ |
 | `Localtime`, `Timelimit` | 🟡 | accepted, ignored |
 | Column set | ✅ | the complete 2.5 schema is known; columns without data in corax return type-correct defaults |
-| `rrddata:` dynamic columns | ⛔ | rendered as null |
+| `rrddata:` dynamic columns (`rrddata`, `host_rrddata`) | ✅ | read from the PNP4Nagios RRDs through rrdcached (`FETCHBIN`), like the original; used by all GUI graphs and by predictive levels |
 | Output encoding | ✅ | byte-compatible string escaping and float formatting |
 | `livestatus_version` | ✅ | reports the site's Checkmk version (the GUI parses it) |
 | `program_version` | 🟡 | `corax-<version>` |

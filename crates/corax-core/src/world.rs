@@ -115,6 +115,8 @@ pub struct Paths {
     pub mk_logwatch_path: Option<PathBuf>,
     pub prediction_path: Option<PathBuf>,
     pub mkeventd_socket: Option<PathBuf>,
+    /// rrdcached socket used to read historic metrics (`rrddata` Livestatus columns).
+    pub rrdcached_socket: Option<PathBuf>,
     pub edition: String,
     /// Checkmk version of the OMD site (e.g. `2.5.0p20`), reported as `livestatus_version`.
     pub checkmk_version: Option<String>,
@@ -171,11 +173,13 @@ impl Paths {
             }
         }
         p.checkmk_version = omd_root(&p).and_then(|root| checkmk_version(&root));
-        if p.mkeventd_socket.is_none() {
-            // OMD convention: $OMD_ROOT/tmp/run/mkeventd/status next to the Livestatus socket
-            if let Some(dir) = p.livestatus_socket.as_ref().and_then(|s| s.parent()) {
+        // OMD convention: both sockets live next to the Livestatus socket
+        // ($OMD_ROOT/tmp/run/), exactly like the original Livestatus derives them.
+        if let Some(dir) = p.livestatus_socket.as_ref().and_then(|s| s.parent()).map(|d| d.to_path_buf()) {
+            if p.mkeventd_socket.is_none() {
                 p.mkeventd_socket = Some(dir.join("mkeventd/status"));
             }
+            p.rrdcached_socket = Some(dir.join("rrdcached.sock"));
         }
         p
     }
@@ -517,5 +521,18 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::os::unix::fs::symlink("../../versions/2.5.0p20.community", dir.path().join("version")).unwrap();
         assert_eq!(checkmk_version(dir.path()).as_deref(), Some("2.5.0p20"));
+    }
+
+    #[test]
+    fn sockets_derived_from_livestatus_socket() {
+        let main = MainConfig::parse_str(
+            "broker_module=/omd/sites/x/lib/mk-livestatus/livestatus.o pnp_path=/p /omd/sites/x/tmp/run/live\n",
+            std::path::Path::new("/omd/sites/x/tmp/nagios/nagios.cfg"),
+        )
+        .unwrap();
+        let p = Paths::from_main(&main);
+        assert_eq!(p.rrdcached_socket, Some(PathBuf::from("/omd/sites/x/tmp/run/rrdcached.sock")));
+        assert_eq!(p.mkeventd_socket, Some(PathBuf::from("/omd/sites/x/tmp/run/mkeventd/status")));
+        assert_eq!(p.pnp_path, Some(PathBuf::from("/p")));
     }
 }

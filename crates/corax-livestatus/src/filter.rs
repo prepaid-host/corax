@@ -303,7 +303,7 @@ mod tests {
 
     fn col(ty: ColumnType, v: Value) -> Column {
         let v = Arc::new(v);
-        Column { name: "c".into(), canonical: "c", ty, get: getter(move |_, _| (*v).clone()) }
+        Column { name: "c".into(), canonical: "c", ty, get: getter(move |_, _| (*v).clone()), rrd: None }
     }
 
     fn check(ty: ColumnType, v: Value, op: &str, reference: &str) -> bool {

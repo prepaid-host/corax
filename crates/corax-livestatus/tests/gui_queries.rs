@@ -254,6 +254,128 @@ async fn socket_roundtrip_with_keepalive_and_commands() {
     server.abort();
 }
 
+/// A minimal rrdcached: answers `FETCHBIN` for the given files and records requests.
+fn fake_rrdcached(socket: &Path, files: Vec<(PathBuf, Vec<f64>)>) -> Arc<std::sync::Mutex<Vec<String>>> {
+    use std::io::{BufRead, BufReader, Write};
+    let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = requests.clone();
+    let listener = std::os::unix::net::UnixListener::bind(socket).unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let mut line = String::new();
+            BufReader::new(&stream).read_line(&mut line).unwrap();
+            let line = line.trim_end().to_string();
+            seen.lock().unwrap().push(line.clone());
+            let file = line.split_whitespace().nth(1).map(PathBuf::from).unwrap_or_default();
+            let reply = match files.iter().find(|(f, _)| *f == file) {
+                Some((_, values)) => {
+                    let mut out = format!(
+                        "6 Success\nFlushVersion: 1\nStart: 1000\nEnd: 1240\nStep: 60\nDSCount: 1\nDSName-1: BinaryData {} 8 LITTLE\n",
+                        values.len()
+                    )
+                    .into_bytes();
+                    values.iter().for_each(|v| out.extend_from_slice(&v.to_le_bytes()));
+                    out
+                }
+                None => format!("-1 rrd_fetch_r failed: opening '{}': No such file or directory\n", file.display())
+                    .into_bytes(),
+            };
+            stream.write_all(&reply).unwrap();
+        }
+    });
+    requests
+}
+
+/// A site with PNP4Nagios RRDs for `db01` served by a fake rrdcached.
+fn rrd_site(dir: &Path) -> (Arc<Shared>, Arc<std::sync::Mutex<Vec<String>>>) {
+    let pnp = dir.join("perfdata");
+    std::fs::create_dir_all(pnp.join("db01")).unwrap();
+    // rrdcached is addressed with the real path (OMD's /omd is a symlink)
+    let real = std::fs::canonicalize(&pnp).unwrap().join("db01");
+    let socket = dir.join("rrdcached.sock");
+    let requests = fake_rrdcached(
+        &socket,
+        vec![
+            (real.join("CPU_utilization_util.rrd"), vec![1.0, 3.0, f64::NAN, 4.0]),
+            (real.join("_HOST__rta.rrd"), vec![0.5, 0.25]),
+        ],
+    );
+    let paths = Paths { pnp_path: Some(pnp), rrdcached_socket: Some(socket), ..Default::default() };
+    let (shared, rx) = Shared::new(build_world(), paths);
+    std::mem::forget(rx);
+    (shared, requests)
+}
+
+#[test]
+fn rrddata_reads_metrics_through_rrdcached() {
+    let dir = tempfile::tempdir().unwrap();
+    let (s, requests) = rrd_site(dir.path());
+    let svc = "Filter: host_name = db01\nFilter: description = CPU utilization\nOutputFormat: python3\n\n";
+
+    // the query the Checkmk GUI sends for a graph (metric with scaling factor)
+    let out =
+        run(&s, &format!("GET services\nColumns: host_name rrddata:util:util.max,2.000000,*:1000:1240:60\n{svc}"));
+    assert_eq!(out, "[[\"db01\",[1000,1240,60,2,6,None,8]]]\n");
+    let real = std::fs::canonicalize(dir.path().join("perfdata")).unwrap();
+    assert_eq!(
+        requests.lock().unwrap().last().unwrap(),
+        &format!("FETCHBIN {}/db01/CPU_utilization_util.rrd MAX 1000 1240 1", real.display())
+    );
+
+    // consolidation to a coarser resolution, CF from the metric suffix
+    let out = run(&s, &format!("GET services\nColumns: rrddata:util:util.average:1000:1240:120\n{svc}"));
+    assert_eq!(out, "[[[1000,1240,120,2,4]]]\n");
+    assert!(requests.lock().unwrap().last().unwrap().contains(" AVERAGE 1000 1240 1"));
+
+    // host metrics: rrddata of the hosts table and host_rrddata of the services table
+    let out =
+        run(&s, "GET hosts\nColumns: rrddata:rta:rta:1000:1240:60\nFilter: name = db01\nOutputFormat: python3\n\n");
+    assert_eq!(out, "[[[1000,1240,60,0.5,0.25]]]\n");
+    let out = run(&s, &format!("GET services\nColumns: host_rrddata:rta:rta,1000,*:1000:1240:60\n{svc}"));
+    assert_eq!(out, "[[[1000,1240,60,500,250]]]\n");
+
+    // the title is the column header; JSON renders missing values as null
+    let out = run(
+        &s,
+        "GET services\nColumns: rrddata:util:util:1000:1240:60\nColumnHeaders: on\nFilter: host_name = db01\nFilter: description = CPU utilization\nOutputFormat: json\n\n",
+    );
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v[0][0], "util");
+    assert_eq!(v[1][0], serde_json::json!([1000, 1240, 60, 1, 3, null, 4]));
+
+    // metrics without an RRD yield an empty list
+    let out = run(&s, &format!("GET services\nColumns: rrddata:x:nosuchmetric:1000:1240:60\n{svc}"));
+    assert_eq!(out, "[[[]]]\n");
+}
+
+#[test]
+fn rrddata_without_rrdcached_or_with_bad_arguments() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = shared(dir.path());
+    let out = run(
+        &s,
+        "GET hosts\nColumns: name rrddata:rta:rta:1000:1240:60\nFilter: name = db01\nOutputFormat: python3\n\n",
+    );
+    assert_eq!(out, "[[\"db01\",[]]]\n");
+
+    for (query, error) in [
+        (
+            "GET hosts\nColumns: rrddata:rta:rta:1000:1240\n\n",
+            "invalid arguments for column 'rrddata': missing resolution",
+        ),
+        ("GET hosts\nColumns: rrddata::rta:1:2:3\n\n", "empty column name for dynamic column 'rrddata'"),
+        ("GET hosts\nColumns: rrddata:rta\n\n", "missing separator in dynamic column 'rrddata'"),
+        ("GET contacts\nColumns: rrddata:a:b:1:2:3\n\n", "table 'contacts' has no dynamic column 'rrddata'"),
+        ("GET hosts\nFilter: rrddata:rta:rta:1:2:3 = 1\n\n", "has no column"),
+    ] {
+        let r = corax_livestatus::execute(&s, query);
+        let body = String::from_utf8_lossy(&r.body);
+        assert_eq!(r.status, 400, "{query}=> {body}");
+        assert!(body.contains(error), "{query}=> {body}");
+    }
+}
+
 /// Dumps corax answers for all captured queries into `$CORAX_DUMP_DIR` (manual
 /// comparison against a reference Livestatus).
 #[test]

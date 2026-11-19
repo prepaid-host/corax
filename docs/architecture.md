@@ -59,6 +59,6 @@
 | "Check_MK" service (`python3 -P …/host_checks/<host>`) | Executed through the [check helper](check-helper.md) when possible. |
 | Passive results | Check result spool (`check_submission = "file"`, default) and `PROCESS_*_CHECK_RESULT` commands. |
 | Livestatus | Socket path and options taken from the `livestatus.o` `broker_module` line. |
-| Graphs | `npcdmod.o` options (`perfdata_file`, `perfdata_spool_dir`, interval) are honoured natively. |
+| Graphs | `npcdmod.o` options (`perfdata_file`, `perfdata_spool_dir`, interval) are honoured natively. Graph data is served by the `rrddata` Livestatus columns, which read the RRDs through the site's rrdcached after the world lock has been released. |
 | Notifications | Contacts and notification commands from the configuration, e.g. `check-mk-notify` → `cmk --notify`. |
 | History | `nagios.log` and `archive/` in Nagios format, consumed by Livestatus `log`/`statehist`. |

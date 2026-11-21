@@ -376,6 +376,71 @@ fn rrddata_without_rrdcached_or_with_bad_arguments() {
     }
 }
 
+/// A site whose `nagios.log` holds the given lines (`+N text` becomes `[T+N] text`).
+fn statehist_site(dir: &Path, lines: &str) -> Arc<Shared> {
+    const T: i64 = 1_795_000_000;
+    let text: String = lines
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(|l| {
+            let (offset, rest) = l.split_once(' ').unwrap();
+            format!("[{}] {rest}\n", T + offset.parse::<i64>().unwrap())
+        })
+        .collect();
+    let log_file = dir.join("nagios.log");
+    std::fs::write(&log_file, text).unwrap();
+    let paths = Paths { log_file: Some(log_file), log_archive_path: Some(dir.join("archive")), ..Default::default() };
+    let (shared, rx) = Shared::new(build_world(), paths);
+    std::mem::forget(rx);
+    shared
+}
+
+#[test]
+fn statehist_rebuilds_the_history_from_the_log() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = statehist_site(
+        dir.path(),
+        "0 corax 0.3.0 starting... (PID=1)
+         0 LOG VERSION: 2.0
+         0 TIMEPERIOD TRANSITION: 24X7;-1;1
+         0 logging initial states
+         0 INITIAL HOST STATE: db01;UP;HARD;1;up
+         0 INITIAL HOST STATE: web01;UP;HARD;1;up
+         0 INITIAL SERVICE STATE: db01;Memory;OK;HARD;1;fine
+         0 INITIAL SERVICE STATE: web01;Memory;OK;HARD;1;fine
+         0 INITIAL SERVICE STATE: web01;No longer configured;OK;HARD;1;fine
+         250 SERVICE ALERT: db01;Memory;CRITICAL;HARD;1;full
+         750 SERVICE ALERT: db01;Memory;OK;HARD;1;fine again",
+    );
+    let period = "Filter: time >= 1795000000\nFilter: time < 1795001000\n";
+    let q = |rest: &str| run(&s, &format!("GET statehist\n{period}{rest}\n"));
+
+    let memory =
+        q("Columns: host_name service_description from until duration state in_notification_period log_output\n\
+         Filter: host_name = db01\nFilter: service_description = Memory\nOutputFormat: python3\n");
+    assert_eq!(
+        memory,
+        "[[\"db01\",\"Memory\",1795000000,1795000250,250,0,1,\"fine\"],\n\
+         [\"db01\",\"Memory\",1795000250,1795000750,500,2,1,\"full\"],\n\
+         [\"db01\",\"Memory\",1795000750,1795000999,249,0,1,\"fine again\"]]\n"
+    );
+    // one row per host and unchanged service, three for the service that changed
+    assert_eq!(q("Stats: state >= -1\n"), "6\n");
+    assert_eq!(q("Columns: state\nFilter: service_description = Memory\nStats: sum duration\n"), "0;1498\n2;500\n");
+    assert_eq!(q("Stats: sum duration_part_critical\nFilter: host_name = db01\n"), "0.5\n");
+    // columns of the current host and service, with and without the `current_` prefix
+    assert_eq!(
+        q("Columns: current_host_name service_description host_address\n\
+           Filter: current_service_description = Memory\nFilter: host_name = web01\n"),
+        "web01;Memory;127.0.0.1\n"
+    );
+    assert_eq!(q("Columns: host_name\nFilter: service_description = \nAuthUser: check-mk-notify\n").lines().count(), 2);
+    assert_eq!(q("Columns: host_name\nAuthUser: nosuchuser\n"), "");
+    // outside of the logged time there is nothing to report
+    assert_eq!(run(&s, "GET statehist\nColumns: host_name\nFilter: time < 1794000000\n\n"), "");
+}
+
 /// Dumps corax answers for all captured queries into `$CORAX_DUMP_DIR` (manual
 /// comparison against a reference Livestatus).
 #[test]

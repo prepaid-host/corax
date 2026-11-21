@@ -277,7 +277,7 @@ fn strip_parens(s: &str) -> &str {
     s
 }
 
-fn parse_service_state(s: &str) -> i64 {
+pub(super) fn parse_service_state(s: &str) -> i64 {
     match strip_parens(s) {
         "WARNING" => 1,
         "CRITICAL" => 2,
@@ -286,7 +286,7 @@ fn parse_service_state(s: &str) -> i64 {
     }
 }
 
-fn parse_host_state(s: &str) -> i64 {
+pub(super) fn parse_host_state(s: &str) -> i64 {
     match strip_parens(s) {
         "DOWN" | "WARNING" => 1,
         "UNREACHABLE" | "CRITICAL" => 2,
@@ -525,7 +525,7 @@ fn cache() -> &'static Mutex<Cache> {
     CACHE.get_or_init(Default::default)
 }
 
-fn first_timestamp(path: &Path) -> Option<i64> {
+pub(super) fn first_timestamp(path: &Path) -> Option<i64> {
     let f = std::fs::File::open(path).ok()?;
     let mut line = String::new();
     BufReader::new(f).read_line(&mut line).ok()?;

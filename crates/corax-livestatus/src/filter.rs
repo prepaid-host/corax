@@ -267,6 +267,30 @@ impl Filter {
         }
     }
 
+    /// The part of the filter that only looks at columns accepted by `keep`. The
+    /// result accepts every row the full filter accepts (and possibly more); `None`
+    /// means that nothing can be said without the other columns.
+    pub fn partial(&self, keep: &dyn Fn(&str) -> bool) -> Option<Filter> {
+        match self {
+            Filter::Column(cf) => keep(cf.column.canonical).then(|| self.clone()),
+            Filter::And(fs) => {
+                let kept: Vec<Filter> = fs.iter().filter_map(|f| f.partial(keep)).collect();
+                (!kept.is_empty()).then_some(Filter::And(kept))
+            }
+            Filter::Or(fs) => fs.iter().map(|f| f.partial(keep)).collect::<Option<Vec<_>>>().map(Filter::Or),
+            // a negation is only safe if nothing was dropped below it
+            Filter::Not(_) => self.only_uses(keep).then(|| self.clone()),
+        }
+    }
+
+    fn only_uses(&self, keep: &dyn Fn(&str) -> bool) -> bool {
+        match self {
+            Filter::Column(cf) => keep(cf.column.canonical),
+            Filter::And(fs) | Filter::Or(fs) => fs.iter().all(|f| f.only_uses(keep)),
+            Filter::Not(f) => f.only_uses(keep),
+        }
+    }
+
     /// Bounds on `column` implied by top-level conjunctive filters, as `(min, max)`.
     /// Used to restrict which log files are read.
     pub fn int_bounds(&self, column: &str) -> (i64, i64) {

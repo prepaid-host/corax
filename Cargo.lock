@@ -79,7 +79,7 @@ dependencies = [
 
 [[package]]
 name = "corax"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "corax-config",
@@ -93,7 +93,7 @@ dependencies = [
 
 [[package]]
 name = "corax-config"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "tempfile",
@@ -102,7 +102,7 @@ dependencies = [
 
 [[package]]
 name = "corax-core"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -118,7 +118,7 @@ dependencies = [
 
 [[package]]
 name = "corax-livestatus"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "chrono",

@@ -455,6 +455,11 @@ pub fn prepare_active_check(ctx: &mut Ctx<'_>, t: Target) -> Option<String> {
         ctx.sched.schedule(ctx.w, t, next);
         return None;
     }
+    if !forced && ctx.w.dependency_failed(t, true, ctx.now) {
+        let next = ctx.now + ctx.w.check_interval_secs(t).max(1);
+        ctx.sched.schedule(ctx.w, t, next);
+        return None;
+    }
     // Hosts without a check command are never actively checked (always UP).
     let call = ctx.w.common(t).check_command.clone()?;
     let line = crate::macros::expand_command(ctx.w, t, &call, ctx.now)?;

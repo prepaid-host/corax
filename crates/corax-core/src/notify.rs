@@ -115,6 +115,9 @@ fn object_viability(ctx: &Ctx<'_>, t: Target, kind: &NotifyKind, extra: &NotifyE
         }
         _ => {
             // PROBLEM / RECOVERY
+            if w.dependency_failed(t, false, ctx.now) {
+                return Err("a notification dependency failed");
+            }
             if !common.notification_options.has_state(st.current_state, is_host) {
                 return Err("state is not selected in notification options");
             }
@@ -350,5 +353,82 @@ mod tests {
         ctx.w.host_mut(HostId(0)).st.scheduled_downtime_depth = 1;
         assert!(!notify(&mut ctx, Target::Service(s), NotifyKind::Problem, NotifyExtra::default()));
         assert!(fx.is_empty());
+    }
+
+    const DEPENDENCIES: &str = "define service {\n host_name h1\n service_description Agent\n check_command ping\n max_check_attempts 1\n}\n\
+        define service {\n host_name h1\n service_description Discovery\n check_command ping\n max_check_attempts 1\n contact_groups admins\n}\n\
+        define service {\n host_name h1\n service_description Inventory\n check_command ping\n max_check_attempts 1\n contact_groups admins\n}\n\
+        define servicedependency {\n host_name h1\n service_description Agent\n dependent_service_description Discovery\n \
+        notification_failure_criteria u,c\n execution_failure_criteria c\n}\n\
+        define servicedependency {\n host_name h1\n service_description Discovery\n dependent_service_description Inventory\n \
+        notification_failure_criteria p\n inherits_parent 1\n}\n\
+        define host {\n host_name h2\n address 10.1.1.2\n max_check_attempts 1\n check_command ping\n contact_groups admins\n}\n\
+        define hostdependency {\n host_name h1\n dependent_host_name h2\n notification_failure_criteria d,u\n}\n";
+
+    #[test]
+    fn failed_dependencies_suppress_notifications() {
+        let mut w = world_from(&format!("{OBJ}{DEPENDENCIES}"));
+        let agent = w.find_service("h1", "Agent").unwrap();
+        let discovery = w.find_service("h1", "Discovery").unwrap();
+        let inventory = w.find_service("h1", "Inventory").unwrap();
+        for s in [agent, discovery, inventory] {
+            w.service_mut(s).st.has_been_checked = true;
+        }
+        w.service_mut(discovery).st.current_state = 2;
+        w.service_mut(inventory).st.current_state = 2;
+        let (d, i) = (Target::Service(discovery), Target::Service(inventory));
+        let now = 1_700_000_000;
+        assert!(!w.dependency_failed(d, false, now) && !w.dependency_failed(i, false, now));
+
+        // WARNING is not part of the criteria, CRITICAL is; the chain passes it on
+        w.service_mut(agent).st.current_state = 1;
+        assert!(!w.dependency_failed(d, false, now));
+        w.service_mut(agent).st.current_state = 2;
+        assert!(w.dependency_failed(d, false, now) && w.dependency_failed(d, true, now));
+        assert!(w.dependency_failed(i, false, now) && !w.dependency_failed(i, true, now));
+        let mut sched = Scheduler::new();
+        let mut fx = Vec::new();
+        let mut ctx = Ctx { w: &mut w, sched: &mut sched, fx: &mut fx, now };
+        assert!(!notify(&mut ctx, d, NotifyKind::Problem, NotifyExtra::default()));
+        // custom notifications are not held back
+        assert!(notify(&mut ctx, d, NotifyKind::Custom, NotifyExtra::default()));
+
+        // a soft state of the master does not count, its last hard state does
+        ctx.w.service_mut(agent).st.state_type = StateType::Soft;
+        ctx.w.service_mut(agent).st.last_hard_state = 0;
+        assert!(!ctx.w.dependency_failed(d, false, now));
+        assert!(notify(&mut ctx, d, NotifyKind::Problem, NotifyExtra::default()));
+        ctx.w.settings.soft_state_dependencies = true;
+        assert!(ctx.w.dependency_failed(d, false, now));
+
+        // `p`: fails while the master is pending
+        ctx.w.service_mut(agent).st.current_state = 0;
+        assert!(!ctx.w.dependency_failed(i, false, now));
+        ctx.w.service_mut(discovery).st.current_state = 0;
+        ctx.w.service_mut(discovery).st.has_been_checked = false;
+        assert!(ctx.w.dependency_failed(i, false, now));
+    }
+
+    #[test]
+    fn host_dependencies_and_execution() {
+        let mut w = world_from(&format!("{OBJ}{DEPENDENCIES}"));
+        let h1 = w.find_host("h1").unwrap();
+        let h2 = Target::Host(w.find_host("h2").unwrap());
+        let now = 1_700_000_000;
+        assert!(!w.dependency_failed(h2, false, now));
+        w.host_mut(h1).st.current_state = 1;
+        assert!(w.dependency_failed(h2, false, now) && !w.dependency_failed(h2, true, now));
+
+        // a failed execution dependency postpones the scheduled check, a forced one runs
+        let agent = w.find_service("h1", "Agent").unwrap();
+        let discovery = Target::Service(w.find_service("h1", "Discovery").unwrap());
+        w.service_mut(agent).st.current_state = 2;
+        let mut sched = Scheduler::new();
+        let mut fx = Vec::new();
+        let mut ctx = Ctx { w: &mut w, sched: &mut sched, fx: &mut fx, now };
+        assert!(crate::checks::prepare_active_check(&mut ctx, discovery).is_none());
+        assert!(!ctx.w.state(discovery).is_executing);
+        ctx.w.state_mut(discovery).forced_check = true;
+        assert!(crate::checks::prepare_active_check(&mut ctx, discovery).is_some());
     }
 }

@@ -215,15 +215,31 @@ pub struct ServiceGroupConfig {
     pub members: Vec<(String, String)>,
 }
 
-/// A service dependency (parsed; evaluated for notification suppression only).
+/// A service dependency: the dependent service is not notified about (or not
+/// checked) while the master service is in one of the listed states.
 #[derive(Debug, Clone)]
 pub struct ServiceDependencyConfig {
     pub host_name: String,
     pub service_description: String,
     pub dependent_host_name: String,
     pub dependent_service_description: String,
+    /// `o,w,u,c,p` or `n`/`a`.
     pub notification_failure_criteria: String,
     pub execution_failure_criteria: String,
+    pub inherits_parent: bool,
+    pub dependency_period: Option<String>,
+}
+
+/// A host dependency, see [`ServiceDependencyConfig`].
+#[derive(Debug, Clone)]
+pub struct HostDependencyConfig {
+    pub host_name: String,
+    pub dependent_host_name: String,
+    /// `o,d,u,p` or `n`/`a`.
+    pub notification_failure_criteria: String,
+    pub execution_failure_criteria: String,
+    pub inherits_parent: bool,
+    pub dependency_period: Option<String>,
 }
 
 /// The fully resolved object configuration.
@@ -238,4 +254,5 @@ pub struct ObjectConfig {
     pub services: Vec<ServiceConfig>,
     pub servicegroups: Vec<ServiceGroupConfig>,
     pub service_dependencies: Vec<ServiceDependencyConfig>,
+    pub host_dependencies: Vec<HostDependencyConfig>,
 }

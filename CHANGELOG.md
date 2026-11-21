@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Host and service dependencies are evaluated: no problem and recovery notifications
+  and no scheduled checks while a dependency fails. Checkmk uses this to keep
+  "Check_MK Discovery" quiet when the agent of a host is unreachable.
+
 ## [0.3.1] - 2026-11-21
 
 ### Fixed

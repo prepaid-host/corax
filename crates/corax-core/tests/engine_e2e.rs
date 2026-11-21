@@ -107,6 +107,11 @@ async fn site_roundtrip() {
 
     let log = std::fs::read_to_string(root.join("var/nagios.log")).unwrap();
     assert!(log.contains("INITIAL HOST STATE: web01;UP;HARD;1;"), "{log}");
+    let marker = log.find("logging initial states").expect("marker line for the state history");
+    assert!(
+        log.find("LOG VERSION: 2.0").unwrap() < marker && marker < log.find("INITIAL HOST STATE").unwrap(),
+        "{log}"
+    );
     assert!(log.contains("SERVICE ALERT: web01;Memory;CRITICAL;HARD;1;CRIT - RAM"), "{log}");
     assert!(log.contains("EXTERNAL COMMAND: ACKNOWLEDGE_SVC_PROBLEM;web01;Memory;2;0;1;tester;looking"), "{log}");
     let retention = std::fs::read_to_string(root.join("var/retention.dat")).unwrap();

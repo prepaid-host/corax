@@ -4,6 +4,7 @@
 //! due checks from the scheduler, a 1 s housekeeping tick and control messages
 //! (reload/shutdown) — and turns the [`Effect`]s produced under the lock into I/O.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -70,6 +71,9 @@ pub struct Engine {
     next_retention_save: i64,
     next_freshness: i64,
     next_host_freshness: i64,
+    /// Last logged state of every timeperiod (`TIMEPERIOD TRANSITION` lines).
+    timeperiods: HashMap<String, bool>,
+    next_timeperiod_check: i64,
 }
 
 fn concurrency(world: &World, options: &EngineOptions) -> usize {
@@ -112,6 +116,8 @@ impl Engine {
             next_retention_save: 0,
             next_freshness: 0,
             next_host_freshness: 0,
+            timeperiods: HashMap::new(),
+            next_timeperiod_check: 0,
         }
     }
 
@@ -147,7 +153,10 @@ impl Engine {
                     stats.skipped
                 );
             }
-            initial_lines = if w.settings.log_initial_states { state_lines(&w, "INITIAL") } else { Vec::new() };
+            self.timeperiods.clear();
+            initial_lines =
+                initial_state_block(&w, &mut self.timeperiods, now, "INITIAL", w.settings.log_initial_states);
+            self.next_timeperiod_check = next_minute(now);
             let use_retained = w.settings.use_retained_scheduling_info;
             scheduler::schedule_initial(&mut w, &mut self.sched, now, use_retained);
             self.next_retention_save = now + w.settings.retention_update_interval.max(1) * 60;
@@ -419,6 +428,7 @@ impl Engine {
         let mut fx = Vec::new();
         let rotate = self.log.rotation_due(now);
         let mut rotation_lines = Vec::new();
+        let mut timeperiod_lines = Vec::new();
         {
             let mut guard = self.shared.world.write();
             let mut ctx = Ctx { w: &mut guard, sched: &mut self.sched, fx: &mut fx, now };
@@ -436,9 +446,16 @@ impl Engine {
             }
             ctx.w.counters.helper_checks = self.helper.served.load(std::sync::atomic::Ordering::Relaxed);
             if rotate {
-                rotation_lines = state_lines(&guard, "CURRENT");
+                rotation_lines = initial_state_block(&guard, &mut self.timeperiods, now, "CURRENT", true);
                 guard.program.last_log_rotation = now;
+                self.next_timeperiod_check = next_minute(now);
+            } else if now >= self.next_timeperiod_check {
+                self.next_timeperiod_check = next_minute(now);
+                timeperiod_lines = timeperiod_transitions(&guard, &mut self.timeperiods, now, false);
             }
+        }
+        for line in timeperiod_lines {
+            self.log.write(now, &line);
         }
         if rotate {
             self.log.rotate(now);
@@ -512,6 +529,15 @@ impl Engine {
         let mut sched = Scheduler::new();
         let use_retained = new_world.settings.use_retained_scheduling_info;
         scheduler::schedule_initial(&mut new_world, &mut sched, now, use_retained);
+        self.timeperiods.clear();
+        let initial_lines = initial_state_block(
+            &new_world,
+            &mut self.timeperiods,
+            now,
+            "INITIAL",
+            new_world.settings.log_initial_states,
+        );
+        self.next_timeperiod_check = next_minute(now);
         {
             let mut w = self.shared.world.write();
             *w = new_world;
@@ -530,6 +556,9 @@ impl Engine {
             &format!("corax {} reloaded configuration (PID={})", env!("CARGO_PKG_VERSION"), std::process::id()),
         );
         self.log.write(now, "LOG VERSION: 2.0");
+        for line in initial_lines {
+            self.log.write(now, &line);
+        }
         self.log.flush();
         self.shared.notify_changed();
     }
@@ -566,6 +595,69 @@ fn spawn_detached(cmdline: String, timeout: u64, what: &'static str) {
             tracing::debug!("{what} command exited with {}: {}", out.return_code, out.output.trim());
         }
     });
+}
+
+fn next_minute(now: i64) -> i64 {
+    now - now.rem_euclid(60) + 60
+}
+
+/// `TIMEPERIOD TRANSITION: <name>;<from>;<to>` lines for every timeperiod whose state
+/// differs from `known` (`from` is -1 for a period logged for the first time). With
+/// `all`, unchanged periods are logged as well.
+fn timeperiod_transitions(w: &World, known: &mut HashMap<String, bool>, now: i64, all: bool) -> Vec<String> {
+    let periods = &w.objects.timeperiods;
+    known.retain(|name, _| periods.contains_key(name));
+    let mut names: Vec<&String> = periods.keys().collect();
+    names.sort();
+    let mut lines = Vec::new();
+    for name in names {
+        let active = timeperiod::is_active(periods, Some(name), now);
+        match known.insert(name.clone(), active) {
+            None => lines.push(format!("TIMEPERIOD TRANSITION: {name};-1;{}", i32::from(active))),
+            Some(before) if all || before != active => {
+                lines.push(format!("TIMEPERIOD TRANSITION: {name};{};{}", i32::from(before), i32::from(active)))
+            }
+            Some(_) => {}
+        }
+    }
+    lines
+}
+
+/// `DOWNTIME ALERT` lines for everything that currently is in a scheduled downtime.
+fn downtime_lines(w: &World) -> Vec<String> {
+    let hosts = w.hosts.iter().filter(|h| h.st.scheduled_downtime_depth > 0).map(|h| {
+        format!("HOST DOWNTIME ALERT: {};STARTED; Host has entered a period of scheduled downtime", h.cfg.name)
+    });
+    let services = w.services.iter().filter(|s| s.st.scheduled_downtime_depth > 0).map(|s| {
+        format!(
+            "SERVICE DOWNTIME ALERT: {};{};STARTED; Service has entered a period of scheduled downtime",
+            w.host(s.host).cfg.name,
+            s.cfg.description
+        )
+    });
+    hosts.chain(services).collect()
+}
+
+/// The lines that let the `statehist` table rebuild the state of every object after a
+/// start, a reload or a log rotation: the state of all timeperiods, the marker line,
+/// the host and service states and the downtimes in effect.
+///
+/// The downtime alerts come last: `statehist` resets its downtime bookkeeping at the
+/// marker line and when it sees the first state line of an object.
+fn initial_state_block(
+    w: &World,
+    timeperiods: &mut HashMap<String, bool>,
+    now: i64,
+    prefix: &str,
+    with_states: bool,
+) -> Vec<String> {
+    let mut lines = timeperiod_transitions(w, timeperiods, now, true);
+    lines.push("logging initial states".to_string());
+    if with_states {
+        lines.extend(state_lines(w, prefix));
+    }
+    lines.extend(downtime_lines(w));
+    lines
 }
 
 /// `INITIAL`/`CURRENT HOST STATE` lines used by availability computations.
@@ -649,5 +741,54 @@ fn check_freshness(ctx: &mut Ctx<'_>, services: bool, hosts: bool) {
         ctx.log(msg);
         ctx.sched.schedule(ctx.w, t, now);
         ctx.w.state_mut(t).forced_check = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::{world_from, OBJ};
+
+    const PERIODS: &str = "define timeperiod {\n timeperiod_name 24X7\n alias Always\n sunday 00:00-24:00\n monday 00:00-24:00\n \
+        tuesday 00:00-24:00\n wednesday 00:00-24:00\n thursday 00:00-24:00\n friday 00:00-24:00\n saturday 00:00-24:00\n}\n\
+        define timeperiod {\n timeperiod_name never\n alias Never\n}\n";
+    const NOW: i64 = 1_700_000_000;
+
+    #[test]
+    fn timeperiod_transitions_are_logged_on_change() {
+        let w = world_from(&format!("{OBJ}{PERIODS}"));
+        let mut known = HashMap::new();
+        assert_eq!(
+            timeperiod_transitions(&w, &mut known, NOW, false),
+            ["TIMEPERIOD TRANSITION: 24X7;-1;1", "TIMEPERIOD TRANSITION: never;-1;0"]
+        );
+        assert!(timeperiod_transitions(&w, &mut known, NOW + 60, false).is_empty());
+        assert_eq!(
+            timeperiod_transitions(&w, &mut known, NOW + 60, true),
+            ["TIMEPERIOD TRANSITION: 24X7;1;1", "TIMEPERIOD TRANSITION: never;0;0"]
+        );
+        known.insert("never".to_string(), true);
+        known.insert("removed".to_string(), true);
+        assert_eq!(timeperiod_transitions(&w, &mut known, NOW + 120, false), ["TIMEPERIOD TRANSITION: never;1;0"]);
+        assert!(!known.contains_key("removed"));
+    }
+
+    #[test]
+    fn initial_state_block_ends_with_the_active_downtimes() {
+        let mut w = world_from(&format!("{OBJ}{PERIODS}"));
+        w.services[0].st.scheduled_downtime_depth = 1;
+        let lines = initial_state_block(&w, &mut HashMap::new(), NOW, "CURRENT", true);
+        assert_eq!(lines.len(), 6, "{lines:?}");
+        assert_eq!(lines[1], "TIMEPERIOD TRANSITION: never;-1;0");
+        assert_eq!(lines[2], "logging initial states");
+        assert!(lines[3].starts_with("CURRENT HOST STATE: h1;"), "{lines:?}");
+        assert!(lines[4].starts_with("CURRENT SERVICE STATE: h1;CPU load;"), "{lines:?}");
+        assert_eq!(
+            lines[5],
+            "SERVICE DOWNTIME ALERT: h1;CPU load;STARTED; Service has entered a period of scheduled downtime"
+        );
+        // without `log_initial_states` only the marker and the downtimes remain
+        let lines = initial_state_block(&w, &mut HashMap::new(), NOW, "INITIAL", false);
+        assert_eq!(lines.len(), 4, "{lines:?}");
     }
 }

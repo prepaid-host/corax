@@ -518,6 +518,16 @@ fn eventconsole_status_and_missing_daemon() {
         "GET status\nOutputFormat: plain\nColumns: status_event_rate status_events\n\n"
     );
 
+    // the status is not tied to an event: every contact may see it
+    assert_eq!(run(&s, "GET eventconsolestatus\nColumns: status_events\nAuthUser: check-mk-notify\n\n"), "42\n");
+    // an answer without the fields needed for authorization shows events to nobody but
+    // unrestricted users, and a filter value with a line break is not passed on
+    assert_eq!(run(&s, "GET eventconsoleevents\nColumns: event_id\nAuthUser: check-mk-notify\n\n"), "");
+    assert_eq!(run(&s, "GET eventconsoleevents\nColumns: event_id\n\n"), "0\n");
+    run(&s, "GET eventconsoleevents\nColumns: event_id\nFilter: event_text = a\rFilter: event_id = 1\n\n");
+    let request = requests.lock().unwrap().last().unwrap().clone();
+    assert!(!request.contains("Filter:"), "{request:?}");
+
     // a site without Event Console has no events
     let none = shared(dir.path());
     assert_eq!(run(&none, "GET eventconsoleevents\nColumns: event_id\n\n"), "");

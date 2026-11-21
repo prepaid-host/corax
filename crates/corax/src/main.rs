@@ -36,5 +36,8 @@ fn main() -> ExitCode {
     if args.verify {
         return daemon::verify(&config);
     }
+    if let Some(queries) = &args.query {
+        return daemon::query(&config, queries);
+    }
     daemon::run(&config, &args)
 }

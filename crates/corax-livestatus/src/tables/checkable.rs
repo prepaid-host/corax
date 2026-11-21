@@ -163,7 +163,8 @@ pub fn column(name: &str) -> Option<ObjFn> {
                 ]))
                 .collect()
         )),
-        "contact_groups" => col!(c, o => Value::str_list(o.cfg.contact_groups.iter().cloned())),
+        // Nagios prepends to its list of contact groups: the last one configured comes first
+        "contact_groups" => col!(c, o => Value::str_list(o.cfg.contact_groups.iter().rev().cloned())),
         "contacts" => col!(c, o => {
             let ids = match o.svc { Some(s) => &s.contacts, None => &o.host.contacts };
             Value::str_list(ids.iter().map(|id| c.world.contact(*id).cfg.name.clone()))

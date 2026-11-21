@@ -9,8 +9,9 @@ same socket, consumes the same check result spool and command pipe, and writes t
 `cmk -R`/`cmk -O` and the notification system keep working unchanged — they simply talk to
 a faster core.
 
-> **Status: alpha.** corax runs real Checkmk sites in testing, but it has not seen broad
-> production use yet. Switching back to Nagios is a single command and keeps all state.
+> **Status: alpha.** corax runs a production Checkmk site with 80 hosts and 7,200
+> services, but it has not seen broad production use yet. Switching back to Nagios is a
+> single command and keeps all state.
 
 ## Why
 
@@ -34,10 +35,14 @@ corax addresses this on three levels:
 
 - **Drop-in**: same CLI as Nagios (`-v`, `-pv`, `-ud`), reads `nagios.cfg`, `cfg_dir`,
   resource files and all object types Checkmk generates (templates, additive inheritance,
-  custom variables, host/service groups, contacts, time periods with exceptions).
+  custom variables, host/service groups, contacts, time periods with exceptions, host
+  and service dependencies).
 - **Livestatus** on the configured socket: all tables used by the Checkmk GUI, filters,
   stats, group-by, `AuthUser`, `WaitCondition`, `COMMAND`, `fixed16` headers, JSON/Python
   output, Checkmk labels and tags.
+- **Everything the GUI shows**: graphs and predictive levels (`rrddata` columns read from
+  the RRDs), availability reports (`statehist`), the Event Console views (forwarded to
+  mkeventd).
 - **Nagios semantics**: soft/hard states, retries, flap detection, acknowledgements
   (sticky/persistent), fixed/flexible/triggered downtimes, comments, notifications with
   all standard macros (including `check-mk-notify`), event handlers, freshness checks,
@@ -58,6 +63,22 @@ Same Checkmk Community 2.5 site, 100 hosts / 1 600 services, 1-minute interval
 |---|---|---|---|
 | Nagios 3.5.1 | 164 % of a core | 108 | 1 824 ms |
 | **corax** | **35 % of a core** | **210** | **207 ms** |
+
+On a production site (80 hosts, 7,200 services, Checkmk 2.5.0p10), measured for ten
+minutes each:
+
+| | Nagios 3.5.1 | corax |
+|---|---|---|
+| CPU of the whole site container | 1.35 cores | **0.38 cores** |
+| Delay until a due check starts (average / maximum) | 141 ms / 1.44 s | **1.7 ms / 11 ms** |
+| Availability of all objects over 30 days (Livestatus `statehist`) | 2.2 s | **1.0 s** |
+
+## Verified against the original
+
+Compatibility is tested, not assumed: [conformance tests](docs/conformance.md) run the
+same Livestatus queries against Checkmk's Livestatus on Nagios and against corax, on the
+same configuration and log files, and compare the rows. On the site above, all queries
+of the standard set return the same rows, including 37,768 rows of state history.
 
 ## Quick start (Checkmk Community / OMD site)
 
@@ -92,6 +113,7 @@ Rust 1.85 or newer is required. See [docs/development.md](docs/development.md).
 - [Architecture](docs/architecture.md)
 - [Installation and operation](docs/installation.md)
 - [Compatibility matrix](docs/compatibility.md)
+- [Conformance tests](docs/conformance.md)
 - [The Python check helper](docs/check-helper.md)
 - [Benchmarks](docs/benchmarks.md)
 - [Development guide](docs/development.md)

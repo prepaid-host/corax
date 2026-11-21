@@ -24,7 +24,7 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets
       - name: shellcheck
-        run: shellcheck packaging/omd/corax-omd
+        run: shellcheck packaging/omd/corax-omd tools/conformance/*.sh
 
   test:
     runs-on: ubuntu-latest

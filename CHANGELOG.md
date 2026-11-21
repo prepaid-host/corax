@@ -11,11 +11,20 @@ All notable changes to this project are documented here. The format follows
 - Host and service dependencies are evaluated: no problem and recovery notifications
   and no scheduled checks while a dependency fails. Checkmk uses this to keep
   "Check_MK Discovery" quiet when the agent of a host is unreachable.
+- `corax --query FILE nagios.cfg` answers Livestatus queries from the configuration, the
+  retention file and the log files, without starting the core.
+- Conformance tests (`tools/conformance`): run queries against Livestatus on Nagios and
+  against corax on the same site and compare the rows.
 - Time periods understand all exception formats of Nagios: days of a month (`day 1 - 15`,
   `december 25`), weekdays within a month (`monday 3`, `thursday -1 november`), ranges
   and skip intervals (`/ 2`). Only calendar dates were supported before.
 - Livestatus `eventconsoleevents`, `eventconsolehistory`, `eventconsolerules` and
   `eventconsolestatus` tables: the Event Console views of the Checkmk GUI show data.
+
+### Fixed
+
+- The Livestatus column `contact_groups` listed the groups in the order of the
+  configuration; Nagios lists them in reverse.
 
 ### Changed
 

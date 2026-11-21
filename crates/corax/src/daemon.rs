@@ -46,6 +46,50 @@ pub fn verify(config: &Path) -> ExitCode {
     }
 }
 
+/// `--query`: answer Livestatus queries without starting the core. The state of the
+/// objects comes from the retention file; nothing is written.
+///
+/// Exit code 0 if every query was answered, 2 if one failed, 1 if the configuration or
+/// the query file could not be read.
+pub fn query(config: &Path, queries: &Path) -> ExitCode {
+    use std::io::{Read, Write};
+
+    let loaded = match corax_config::load(config) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::from(1);
+        }
+    };
+    let mut text = String::new();
+    let read = if queries.as_os_str() == "-" {
+        std::io::stdin().read_to_string(&mut text)
+    } else {
+        std::fs::File::open(queries).and_then(|mut f| f.read_to_string(&mut text))
+    };
+    if let Err(e) = read {
+        eprintln!("cannot read the queries from {}: {e}", queries.display());
+        return ExitCode::from(1);
+    }
+    let paths = Paths::from_main(&loaded.main);
+    let mut world = World::new(&loaded, corax_core::now());
+    if let Some(retained) = paths.state_retention_file.as_ref().and_then(|f| std::fs::read_to_string(f).ok()) {
+        corax_core::retention::restore(&mut world, &retained);
+    }
+    // the receiver stays alive so that commands sent by a query are accepted (and dropped)
+    let (shared, _commands) = Shared::new(world, paths);
+    let mut failed = false;
+    let mut out = std::io::stdout().lock();
+    for request in text.split("\n\n").filter(|q| !q.trim().is_empty()) {
+        let response = corax_livestatus::execute(&shared, &format!("{}\n\n", request.trim_start_matches('\n')));
+        failed |= response.status != 200;
+        if out.write_all(&response.to_bytes()).is_err() {
+            return ExitCode::from(1);
+        }
+    }
+    ExitCode::from(if failed { 2 } else { 0 })
+}
+
 /// Classic double fork. Must run before any threads exist.
 fn daemonize() -> std::io::Result<()> {
     // SAFETY: called before the async runtime (or any other thread) is started.

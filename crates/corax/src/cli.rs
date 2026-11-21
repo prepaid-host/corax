@@ -16,6 +16,9 @@ corax options:
       --max-concurrent-checks N   Limit the number of concurrently running checks
       --log-level LEVEL           error, warn, info (default), debug, trace
       --diag-log FILE             Diagnostic log file in daemon mode (default: corax.log next to log_file)
+      --query FILE                Answer the Livestatus queries in FILE (separated by blank lines,
+                                  `-` reads standard input) from the configuration, the retention
+                                  file and the log files, without starting the core
   -h, --help                      Show this help
 
 Environment: CORAX_CHECK_HELPER=0 disables the check helper, RUST_LOG overrides --log-level.";
@@ -30,6 +33,7 @@ pub struct Args {
     pub max_concurrent_checks: usize,
     pub log_level: String,
     pub diag_log: Option<PathBuf>,
+    pub query: Option<PathBuf>,
     pub config: Option<PathBuf>,
 }
 
@@ -54,6 +58,7 @@ impl Args {
                 }
                 "--log-level" => a.log_level = it.next().ok_or("--log-level needs a value")?,
                 "--diag-log" => a.diag_log = Some(it.next().ok_or("--diag-log needs a value")?.into()),
+                "--query" => a.query = Some(it.next().ok_or("--query needs a value")?.into()),
                 s if s.starts_with("--") => return Err(format!("unknown option '{s}'")),
                 s if s.starts_with('-') && s.len() > 1 => {
                     for c in s[1..].chars() {
@@ -96,5 +101,7 @@ mod tests {
         assert!(a.daemon && !a.verify);
         assert!(Args::parse(["-z".to_string()]).is_err());
         assert_eq!(p(&["--max-concurrent-checks", "8", "c"]).max_concurrent_checks, 8);
+        assert_eq!(p(&["--query", "-", "c"]).query.unwrap().to_str(), Some("-"));
+        assert!(Args::parse(["--query".to_string()]).is_err());
     }
 }

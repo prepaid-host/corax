@@ -28,6 +28,39 @@ The script used to produce these numbers is part of the maintainers' tooling; th
 above is sufficient to reproduce them on any site. Numbers on real sites depend heavily
 on agent types, plug-ins and SNMP usage — please share your measurements in an issue.
 
+## A production site
+
+Checkmk 2.5.0p10 Community in a container, 80 hosts and 7,200 services, real agents,
+1-minute interval. Each core ran for ten minutes; CPU time is the container cgroup's
+`usage_usec`, the delay is the `latency` column of the `Check_MK` services.
+
+| | Nagios 3.5.1 | corax |
+|---|---|---|
+| CPU of the container | 1.35 cores | 0.38 cores |
+| Host checks executed | 800 | 789 |
+| Delay until a due check starts, average | 141 ms | 1.7 ms |
+| Delay until a due check starts, maximum | 1.44 s | 11 ms |
+| Run time of a host check, average | 4.64 s | 4.08 s |
+
+The corax measurement began right after the switch, while the checks were still being
+spread over the interval, hence the eleven checks fewer. Afterwards all 80 hosts were
+checked every minute.
+
+## State history queries
+
+Availability reports read the Livestatus `statehist` table, which is rebuilt from the
+log files for every query. Same site, archive of 753 log files (3.2 GB):
+
+| Query | Livestatus on Nagios | corax |
+|---|---|---|
+| all objects, 7 days (55,246 rows) | 1.3 s | 0.7 s |
+| all objects, 30 days, grouped stats | 2.2 s | 1.0 s |
+| one host, 1 year | 11.4 s | 3.0 s |
+
+The corax times include 0.25 s for loading the configuration, because the queries ran
+through `corax --query`. The Nagios process held 1.8 GB of memory after these queries;
+corax needed 212 MB at its peak and keeps nothing afterwards.
+
 ## Memory
 
 corax itself uses about 3–4 MB RSS for a small site. The check helper is one Python

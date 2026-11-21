@@ -235,36 +235,36 @@ enum Kind {
 
 /// Classify the text of a log line (after the timestamp); `None` for lines that do
 /// not matter here. Kinds found in the first `match` have arguments after `TYPE: `.
-fn classify(text: &str) -> Option<Kind> {
-    if let Some(p) = text.find(':') {
-        if text[p + 1..].starts_with(' ') {
+fn classify(text: &[u8]) -> Option<Kind> {
+    if let Some(p) = memchr::memchr(b':', text) {
+        if text[p + 1..].starts_with(b" ") {
             let kind = match &text[..p] {
-                "INITIAL HOST STATE" => Some(Kind::InitialHostState),
-                "CURRENT HOST STATE" => Some(Kind::CurrentHostState),
-                "HOST ALERT" => Some(Kind::HostAlert),
-                "HOST DOWNTIME ALERT" => Some(Kind::HostDowntimeAlert),
-                "HOST FLAPPING ALERT" => Some(Kind::HostFlappingAlert),
-                "INITIAL SERVICE STATE" => Some(Kind::InitialServiceState),
-                "CURRENT SERVICE STATE" => Some(Kind::CurrentServiceState),
-                "SERVICE ALERT" => Some(Kind::ServiceAlert),
-                "SERVICE DOWNTIME ALERT" => Some(Kind::ServiceDowntimeAlert),
-                "SERVICE FLAPPING ALERT" => Some(Kind::ServiceFlappingAlert),
-                "TIMEPERIOD TRANSITION" => Some(Kind::TimeperiodTransition),
-                "HOST ACKNOWLEDGE ALERT" | "SERVICE ACKNOWLEDGE ALERT" => Some(Kind::Other),
+                b"INITIAL HOST STATE" => Some(Kind::InitialHostState),
+                b"CURRENT HOST STATE" => Some(Kind::CurrentHostState),
+                b"HOST ALERT" => Some(Kind::HostAlert),
+                b"HOST DOWNTIME ALERT" => Some(Kind::HostDowntimeAlert),
+                b"HOST FLAPPING ALERT" => Some(Kind::HostFlappingAlert),
+                b"INITIAL SERVICE STATE" => Some(Kind::InitialServiceState),
+                b"CURRENT SERVICE STATE" => Some(Kind::CurrentServiceState),
+                b"SERVICE ALERT" => Some(Kind::ServiceAlert),
+                b"SERVICE DOWNTIME ALERT" => Some(Kind::ServiceDowntimeAlert),
+                b"SERVICE FLAPPING ALERT" => Some(Kind::ServiceFlappingAlert),
+                b"TIMEPERIOD TRANSITION" => Some(Kind::TimeperiodTransition),
+                b"HOST ACKNOWLEDGE ALERT" | b"SERVICE ACKNOWLEDGE ALERT" => Some(Kind::Other),
                 // typed lines of other log classes
-                "HOST NOTIFICATION"
-                | "SERVICE NOTIFICATION"
-                | "HOST NOTIFICATION RESULT"
-                | "SERVICE NOTIFICATION RESULT"
-                | "HOST NOTIFICATION PROGRESS"
-                | "SERVICE NOTIFICATION PROGRESS"
-                | "HOST ALERT HANDLER STARTED"
-                | "SERVICE ALERT HANDLER STARTED"
-                | "HOST ALERT HANDLER STOPPED"
-                | "SERVICE ALERT HANDLER STOPPED"
-                | "PASSIVE SERVICE CHECK"
-                | "PASSIVE HOST CHECK"
-                | "EXTERNAL COMMAND" => return None,
+                b"HOST NOTIFICATION"
+                | b"SERVICE NOTIFICATION"
+                | b"HOST NOTIFICATION RESULT"
+                | b"SERVICE NOTIFICATION RESULT"
+                | b"HOST NOTIFICATION PROGRESS"
+                | b"SERVICE NOTIFICATION PROGRESS"
+                | b"HOST ALERT HANDLER STARTED"
+                | b"SERVICE ALERT HANDLER STARTED"
+                | b"HOST ALERT HANDLER STOPPED"
+                | b"SERVICE ALERT HANDLER STOPPED"
+                | b"PASSIVE SERVICE CHECK"
+                | b"PASSIVE HOST CHECK"
+                | b"EXTERNAL COMMAND" => return None,
                 _ => None,
             };
             if kind.is_some() {
@@ -272,13 +272,14 @@ fn classify(text: &str) -> Option<Kind> {
             }
         }
     }
-    if text.starts_with("LOG VERSION: 2.0") {
+    let contains = |needle: &[u8]| memchr::memmem::find(text, needle).is_some();
+    if text.starts_with(b"LOG VERSION: 2.0") {
         Some(Kind::LogVersion)
-    } else if text.starts_with("logging initial states") || text.starts_with("logging intitial states") {
+    } else if text.starts_with(b"logging initial states") || text.starts_with(b"logging intitial states") {
         Some(Kind::LoggingInitialStates)
-    } else if text.contains("starting...") || text.contains("active mode...") {
+    } else if contains(b"starting...") || contains(b"active mode...") {
         Some(Kind::CoreStarting)
-    } else if text.contains("shutting down...") || text.contains("Bailing out") || text.contains("standby mode...") {
+    } else if contains(b"shutting down...") || contains(b"Bailing out") || contains(b"standby mode...") {
         Some(Kind::Other)
     } else {
         None
@@ -351,15 +352,15 @@ impl LogFile {
         let mut start = 0;
         let mut lineno = 0;
         while start < data.len() {
-            let end = data[start..].iter().position(|&b| b == b'\n').map_or(data.len(), |p| start + p);
+            let end = memchr::memchr(b'\n', &data[start..]).map_or(data.len(), |p| start + p);
             lineno += 1;
             let raw = &data[start..end];
             if raw.len() >= 13 && raw[0] == b'[' && raw[11] == b']' && raw[12] == b' ' {
                 let time = std::str::from_utf8(&raw[1..11]).ok().and_then(|t| t.parse::<i64>().ok());
                 if let Some(time) = time {
-                    if let Some(kind) = classify(&String::from_utf8_lossy(&raw[13..])) {
-                        // the arguments follow the first ": " (offsets in the raw bytes)
-                        let colon = raw.iter().position(|&b| b == b':').unwrap_or(raw.len());
+                    if let Some(kind) = classify(&raw[13..]) {
+                        // the arguments follow the first ": "
+                        let colon = memchr::memchr(b':', raw).unwrap_or(raw.len());
                         let args = (start + colon + 2).min(end);
                         sorted &= time >= last;
                         last = time;
@@ -378,6 +379,46 @@ impl LogFile {
 
     fn args(&self, line: &Line) -> Cow<'_, str> {
         String::from_utf8_lossy(&self.data[line.args..line.end])
+    }
+}
+
+/// Reads the log files of a query in order, parsing a few of them ahead in parallel.
+struct LogFiles<'a> {
+    files: &'a [(i64, PathBuf)],
+    /// Files starting at or after this time are not needed.
+    until: i64,
+    /// Index of the next file to read.
+    next: usize,
+    ahead: std::collections::VecDeque<LogFile>,
+}
+
+/// Upper bound of files held in memory at once (and of parser threads).
+const MAX_READ_AHEAD: usize = 4;
+
+impl LogFiles<'_> {
+    fn next_file(&mut self) -> Option<LogFile> {
+        if self.ahead.is_empty() {
+            let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(MAX_READ_AHEAD);
+            let batch: Vec<&PathBuf> = self.files[self.next.min(self.files.len())..]
+                .iter()
+                .take_while(|(since, _)| *since < self.until)
+                .take(threads)
+                .map(|(_, path)| path)
+                .collect();
+            self.next += batch.len();
+            match batch[..] {
+                [] => {}
+                [path] => self.ahead.push_back(LogFile::read(path)),
+                _ => std::thread::scope(|scope| {
+                    let workers: Vec<_> = batch.iter().map(|path| scope.spawn(|| LogFile::read(path))).collect();
+                    for (worker, path) in workers.into_iter().zip(&batch) {
+                        // a panicking parser must not take the query down
+                        self.ahead.push_back(worker.join().unwrap_or_else(|_| LogFile::read(path)));
+                    }
+                }),
+            }
+        }
+        self.ahead.pop_front()
     }
 }
 
@@ -778,7 +819,8 @@ impl Machine<'_> {
         if files[file_index].0 >= self.until {
             return;
         }
-        let mut file = LogFile::read(&files[file_index].1);
+        let mut reader = LogFiles { files, until: self.until, next: file_index, ahead: Default::default() };
+        let Some(mut file) = reader.next_file() else { return };
         // The first relevant line of the first file is not evaluated, and a file whose
         // lines all predate the query period is skipped (like Livestatus).
         let skip_file =
@@ -789,11 +831,10 @@ impl Machine<'_> {
         let mut log_has_been_rotated = false;
         loop {
             while pos >= file.lines.len() {
-                file_index += 1;
-                if file_index > newest || files[file_index].0 >= self.until {
-                    return self.final_reports();
+                match reader.next_file() {
+                    Some(next) => file = next,
+                    None => return self.final_reports(),
                 }
-                file = LogFile::read(&files[file_index].1);
                 pos = 0;
             }
             let line = file.lines[pos];
@@ -991,19 +1032,19 @@ mod tests {
 
     #[test]
     fn classifies_lines() {
-        assert_eq!(classify("SERVICE ALERT: h;s;OK;HARD;1;starting..."), Some(Kind::ServiceAlert));
-        assert_eq!(classify("SERVICE NOTIFICATION: c;h;s;OK;cmd;starting..."), None);
-        assert_eq!(classify("HOST NOTIFICATION RESULT: c;h;OK;cmd;starting..."), None);
-        assert_eq!(classify("EXTERNAL COMMAND: LOG;shutting down..."), None);
-        assert_eq!(classify("Caught SIGHUP, restarting..."), Some(Kind::CoreStarting));
-        assert_eq!(classify("Nagios 3.5.1 starting... (PID=1)"), Some(Kind::CoreStarting));
-        assert_eq!(classify("Caught SIGTERM, shutting down..."), Some(Kind::Other));
-        assert_eq!(classify("HOST ACKNOWLEDGE ALERT: h;STARTED;me;why"), Some(Kind::Other));
-        assert_eq!(classify("LOG VERSION: 2.0"), Some(Kind::LogVersion));
-        assert_eq!(classify("logging initial states"), Some(Kind::LoggingInitialStates));
-        assert_eq!(classify("TIMEPERIOD TRANSITION: 24X7;-1;1"), Some(Kind::TimeperiodTransition));
-        assert_eq!(classify("LOG ROTATION: DAILY"), None);
-        assert_eq!(classify("Auto-save of retention data completed successfully."), None);
+        assert_eq!(classify(b"SERVICE ALERT: h;s;OK;HARD;1;starting..."), Some(Kind::ServiceAlert));
+        assert_eq!(classify(b"SERVICE NOTIFICATION: c;h;s;OK;cmd;starting..."), None);
+        assert_eq!(classify(b"HOST NOTIFICATION RESULT: c;h;OK;cmd;starting..."), None);
+        assert_eq!(classify(b"EXTERNAL COMMAND: LOG;shutting down..."), None);
+        assert_eq!(classify(b"Caught SIGHUP, restarting..."), Some(Kind::CoreStarting));
+        assert_eq!(classify(b"Nagios 3.5.1 starting... (PID=1)"), Some(Kind::CoreStarting));
+        assert_eq!(classify(b"Caught SIGTERM, shutting down..."), Some(Kind::Other));
+        assert_eq!(classify(b"HOST ACKNOWLEDGE ALERT: h;STARTED;me;why"), Some(Kind::Other));
+        assert_eq!(classify(b"LOG VERSION: 2.0"), Some(Kind::LogVersion));
+        assert_eq!(classify(b"logging initial states"), Some(Kind::LoggingInitialStates));
+        assert_eq!(classify(b"TIMEPERIOD TRANSITION: 24X7;-1;1"), Some(Kind::TimeperiodTransition));
+        assert_eq!(classify(b"LOG ROTATION: DAILY"), None);
+        assert_eq!(classify(b"Auto-save of retention data completed successfully."), None);
     }
 
     #[test]

@@ -12,6 +12,11 @@ All notable changes to this project are documented here. The format follows
   and no scheduled checks while a dependency fails. Checkmk uses this to keep
   "Check_MK Discovery" quiet when the agent of a host is unreachable.
 
+### Changed
+
+- `statehist` parses up to four log files in parallel. A query over one year of logs
+  (2 GB) takes 2.8 s instead of 4.8 s.
+
 ## [0.3.1] - 2026-11-21
 
 ### Fixed

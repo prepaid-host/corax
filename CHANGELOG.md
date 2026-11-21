@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Releases are published by the pipeline when a release pull request is merged: tag,
+  binaries and release notes from the changelog. `tools/release/prepare.sh` prepares the
+  pull request.
+
 ## [0.5.0] - 2026-11-21
 
 ### Added

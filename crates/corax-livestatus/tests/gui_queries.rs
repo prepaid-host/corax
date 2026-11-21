@@ -441,6 +441,96 @@ fn statehist_rebuilds_the_history_from_the_log() {
     assert_eq!(run(&s, "GET statehist\nColumns: host_name\nFilter: time < 1794000000\n\n"), "");
 }
 
+/// A site with a fake Event Console daemon that answers every request with `reply`.
+/// Returns the requests it received.
+fn event_console_site(dir: &Path, reply: &'static str) -> (Arc<Shared>, Arc<std::sync::Mutex<Vec<String>>>) {
+    use std::io::{Read, Write};
+    let socket = dir.join("mkeventd.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = requests.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let mut request = String::new();
+            let _ = stream.read_to_string(&mut request);
+            seen.lock().unwrap().push(request);
+            let _ = stream.write_all(reply.as_bytes());
+        }
+    });
+    let paths = Paths { mkeventd_socket: Some(socket), ..Default::default() };
+    let (shared, rx) = Shared::new(build_world(), paths);
+    std::mem::forget(rx);
+    (shared, requests)
+}
+
+#[test]
+fn eventconsole_tables_are_served_by_mkeventd() {
+    let dir = tempfile::tempdir().unwrap();
+    let (s, requests) = event_console_site(
+        dir.path(),
+        "event_contact_groups\tevent_contact_groups_precedence\tevent_host\tevent_id\tevent_phase\tevent_text\n\
+         \u{2}\thost\tDB01\t7\topen\tdisk fail\n\
+         \u{1}nosuchgroup\u{1}other\trule\tweb01\t8\topen\tfail again\n\
+         \u{2}\thost\tunknown-host\t9\tclosed\tfail\n",
+    );
+    let events = run(
+        &s,
+        "GET eventconsoleevents\nColumns: event_id event_text event_host host_name host_address event_contact_groups\n\
+         Filter: event_text ~ fail\nFilter: event_phase != closed\nOutputFormat: python3\n\n",
+    );
+    // the host is found by its name in any case; lists and numbers are converted
+    assert_eq!(
+        events,
+        "[[7,\"disk fail\",\"DB01\",\"db01\",\"127.0.0.1\",[]],\n\
+         [8,\"fail again\",\"web01\",\"web01\",\"127.0.0.1\",[\"nosuchgroup\",\"other\"]]]\n"
+    );
+    // only the columns of the query are requested, plus those needed for the join and
+    // for authorization; mkeventd pre-filters what it can
+    assert_eq!(
+        requests.lock().unwrap()[0],
+        "GET events\nOutputFormat: plain\nColumns: event_contact_groups event_contact_groups_precedence event_host \
+         event_id event_phase event_text\nFilter: event_text ~ fail\n\n"
+    );
+
+    // contacts see events of their hosts; contact groups of a rule take precedence
+    let visible = run(&s, "GET eventconsoleevents\nColumns: event_id\nAuthUser: check-mk-notify\n\n");
+    assert_eq!(visible, "7\n9\n");
+    assert_eq!(run(&s, "GET eventconsoleevents\nColumns: event_id\nAuthUser: nosuchuser\n\n"), "");
+    assert_eq!(run(&s, "GET eventconsoleevents\nStats: event_id > 0\nStats: host_name = web01\n\n"), "3;1\n");
+
+    run(
+        &s,
+        "GET eventconsolehistory\nColumns: history_line\nFilter: history_time >= 100\nFilter: history_time < 200\n\n",
+    );
+    let history = requests.lock().unwrap().last().unwrap().clone();
+    assert!(history.starts_with("GET history\n"), "{history}");
+    assert!(history.ends_with("\nFilter: history_time >= 100\nFilter: history_time <= 199\n\n"), "{history}");
+}
+
+#[test]
+fn eventconsole_status_and_missing_daemon() {
+    let dir = tempfile::tempdir().unwrap();
+    let (s, requests) = event_console_site(dir.path(), "status_event_rate\tstatus_events\n1.5\t42\n");
+    assert_eq!(run(&s, "GET eventconsolestatus\nColumns: status_events status_event_rate\n\n"), "42;1.5\n");
+    assert_eq!(
+        requests.lock().unwrap()[0],
+        "GET status\nOutputFormat: plain\nColumns: status_event_rate status_events\n\n"
+    );
+
+    // a site without Event Console has no events
+    let none = shared(dir.path());
+    assert_eq!(run(&none, "GET eventconsoleevents\nColumns: event_id\n\n"), "");
+    // a daemon that does not answer is a gateway error
+    let dead = dir.path().join("dead.sock");
+    std::fs::write(&dead, "").unwrap();
+    let (broken, rx) = Shared::new(build_world(), Paths { mkeventd_socket: Some(dead), ..Default::default() });
+    std::mem::forget(rx);
+    let r = corax_livestatus::execute(&broken, "GET eventconsoleevents\nColumns: event_id\n\n");
+    assert_eq!(r.status, 502);
+    assert!(String::from_utf8_lossy(&r.body).contains("cannot query the Event Console"));
+}
+
 /// Dumps corax answers for all captured queries into `$CORAX_DUMP_DIR` (manual
 /// comparison against a reference Livestatus).
 #[test]

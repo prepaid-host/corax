@@ -8,6 +8,7 @@
 mod checkable;
 mod comments;
 mod contacts;
+pub mod eventconsole;
 mod groups;
 mod hosts;
 pub mod log;
@@ -97,6 +98,8 @@ pub enum Row<'a> {
     Downtime(&'a Downtime),
     Log(&'a LogEntry),
     StateHist(&'a statehist::Span),
+    /// An Event Console row and the host its event belongs to.
+    EventConsole(&'a eventconsole::EcRow, Option<&'a Host>),
     HostByGroup(&'a Host, &'a HostGroup),
     ServiceByGroup(&'a Service, &'a ServiceGroup),
     ServiceByHostGroup(&'a Service, &'a HostGroup),
@@ -115,6 +118,7 @@ impl<'a> Row<'a> {
             Row::Downtime(d) => Some(w.host(w.host_of(d.target))),
             Row::Log(l) => w.find_host(&l.host_name).map(|h| w.host(h)),
             Row::StateHist(s) => w.find_host(&s.host_name).map(|h| w.host(h)),
+            Row::EventConsole(_, host) => host,
             _ => None,
         }
     }
@@ -243,6 +247,7 @@ fn build_getter(table: &str, def: &ColumnDef) -> Getter {
                 .map(|f| getter(move |c, r| r.servicegroup().map(|g| f(c, g)).unwrap_or_else(|| ty.default_value()))),
             Entity::Contact => contacts::column(rest)
                 .map(|f| getter(move |c, r| r.contact(c).map(|ct| f(c, ct)).unwrap_or_else(|| ty.default_value()))),
+            Entity::Own if table.starts_with("eventconsole") => Some(eventconsole::column(def.name, ty)),
             Entity::Own => own_column(table, rest),
         };
         if let Some(g) = getter {
@@ -343,6 +348,7 @@ fn rrd_column(table: &str, dynamic: &str, rest: &str) -> Result<Column, String> 
 pub struct Preloaded {
     pub log: Vec<Arc<log::LogChunk>>,
     pub statehist: Vec<statehist::Span>,
+    pub event_console: Vec<eventconsole::EcRow>,
     pub crash_reports: Vec<CrashReport>,
 }
 
@@ -466,7 +472,15 @@ pub fn for_each_row<'a>(
         }
         "crashreports" => each!(pre.crash_reports.iter().map(Row::CrashReport)),
         "labels" => each!(labels.iter().map(Row::Label)),
-        // the Event Console tables are not (yet) provided by corax
+        "eventconsoleevents" | "eventconsolehistory" | "eventconsolerules" | "eventconsolestatus" => {
+            let hosts = eventconsole::Designations::new(w);
+            for ec in &pre.event_console {
+                let host = hosts.find(w, ec);
+                if eventconsole::visible(ctx, ec, host) && !f(Row::EventConsole(ec, host)) {
+                    return;
+                }
+            }
+        }
         _ => {}
     }
 }

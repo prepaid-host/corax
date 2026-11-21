@@ -45,6 +45,35 @@ in both directions.
 * run `corax-omd uninstall` before and `corax-omd install` after the update (recommended), or
 * accept the new version of the file during the update and run `corax-omd install` again.
 
+## Monitoring the core itself
+
+`omd update` may restore the init script of the Nagios core, and the site then runs
+Nagios again without telling anyone. `corax-site-check` is a Checkmk local check that
+makes this visible. Copy it from the release package to the agent of the host that runs
+the site:
+
+```bash
+install -m 0755 corax-site-check /usr/lib/check_mk_agent/local/
+```
+
+After the next service discovery every site has a service `corax <site>`:
+
+| State | Meaning |
+|---|---|
+| CRIT | the site does not run corax, or the core does not answer |
+| WARN | a newer release is available, or the installed binary is newer than the running core (restart pending) |
+| OK | corax is running in the installed version |
+
+Optional settings in `/etc/check_mk/corax.cfg`:
+
+```
+SITES=site1 site2      # default: all sites of `omd sites`
+CONTAINER=name         # the sites live in this Docker container
+CHECK_UPDATES=no       # do not ask GitHub for the newest release
+```
+
+The newest release is looked up through the GitHub API at most every six hours.
+
 ## Options
 
 corax accepts the Nagios command line. Additional options can be set by editing the

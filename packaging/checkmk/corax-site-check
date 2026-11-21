@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# Checkmk local check for sites that run the corax core.
+#
+# One service per site, "corax <site>":
+#   CRIT  the site does not run corax (any more), e.g. after `omd update` restored the
+#         init script of the Nagios core
+#   WARN  a newer release is available, or the running core is older than the
+#         installed binary (restart pending)
+#   OK    otherwise
+#
+# Install into /usr/lib/check_mk_agent/local/ on the host that runs the site(s).
+# Optional settings in /etc/check_mk/corax.cfg (KEY=value, one per line):
+#   SITES=site1 site2      sites to check (default: all sites of `omd sites`)
+#   CONTAINER=name         the sites live in this Docker container
+#   CHECK_UPDATES=no       do not ask GitHub for the newest release
+#
+# The newest release is looked up at most every six hours and cached.
+
+SITES=
+CONTAINER=
+CHECK_UPDATES=yes
+config=${MK_CONFDIR:-/etc/check_mk}/corax.cfg
+if [ -r "$config" ]; then
+    while IFS='=' read -r key value; do
+        case $key in
+            SITES) SITES=$value ;;
+            CONTAINER) CONTAINER=$value ;;
+            CHECK_UPDATES) CHECK_UPDATES=$value ;;
+        esac
+    done <"$config"
+fi
+
+# Run a command as a site user, on the host or in the container.
+as_site() {
+    site=$1
+    shift
+    if [ -n "$CONTAINER" ]; then
+        docker exec -u "$site" "$CONTAINER" bash -lc "$*" 2>/dev/null
+    else
+        su - "$site" -c "$*" 2>/dev/null
+    fi
+}
+
+if [ -z "$SITES" ]; then
+    if [ -n "$CONTAINER" ]; then
+        SITES=$(docker exec "$CONTAINER" omd sites --bare 2>/dev/null)
+    else
+        SITES=$(omd sites --bare 2>/dev/null)
+    fi
+fi
+[ -n "$SITES" ] || exit 0
+
+# The newest release, from the cache or from GitHub. Empty if unknown.
+latest=
+if [ "$CHECK_UPDATES" = yes ]; then
+    cache=${MK_VARDIR:-/var/lib/check_mk_agent}/cache/corax_latest_release
+    if [ -z "$(find "$cache" -mmin -360 2>/dev/null)" ]; then
+        tag=$(curl -fsS --max-time 10 https://api.github.com/repos/prepaid-host/corax/releases/latest 2>/dev/null |
+            sed -n 's/.*"tag_name": *"v\([0-9][0-9.]*\)".*/\1/p' | head -n 1)
+        if [ -n "$tag" ] && mkdir -p "$(dirname "$cache")" 2>/dev/null; then
+            echo "$tag" >"$cache"
+        fi
+    fi
+    [ -r "$cache" ] && latest=$(head -n 1 "$cache" | tr -cd '0-9.')
+fi
+
+# Whether version $1 is older than version $2.
+older() {
+    [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n 1)" = "$1" ]
+}
+
+for site in $SITES; do
+    status=$(as_site "$site" 'corax-omd status' | head -n 1)
+    installed=$(printf '%s' "$status" | sed -n 's/.*core = corax (corax \([0-9][0-9.]*\).*/\1/p')
+    if [ -z "$installed" ]; then
+        core=$(printf '%s' "$status" | sed -n 's/.*core = \([a-z0-9]*\).*/\1/p')
+        echo "2 \"corax $site\" - The site does not run corax (core: ${core:-unknown}). Reinstall it with: corax-omd install"
+        continue
+    fi
+    running=$(as_site "$site" 'printf "GET status\nColumns: program_version\n\n" | unixcat ~/tmp/run/live' |
+        sed -n 's/^corax-\([0-9][0-9.]*\)$/\1/p' | head -n 1)
+    state=0
+    text="Version $installed"
+    if [ -z "$running" ]; then
+        state=2
+        text="$text, the core does not answer on Livestatus"
+    elif [ "$running" != "$installed" ]; then
+        state=1
+        text="$text installed, but $running is running: restart the core (omd restart nagios)"
+    fi
+    if [ -n "$latest" ] && older "$installed" "$latest"; then
+        [ "$state" -ne 0 ] || state=1
+        text="$text, release $latest is available"
+    fi
+    echo "$state \"corax $site\" - $text"
+done

@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `corax-site-check`, a Checkmk local check: one service per site that turns CRIT if the
+  site no longer runs corax (for example after `omd update`) and WARN if a newer release
+  is available or the core has to be restarted after an update.
+
 ## [0.5.1] - 2026-11-21
 
 ### Changed

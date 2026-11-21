@@ -270,6 +270,18 @@ fn failure_criteria(criteria: &str, is_host: bool) -> (u8, bool) {
     (states, pending)
 }
 
+/// A notification escalation of one host or service.
+#[derive(Debug, Clone)]
+pub struct Escalation {
+    pub contacts: Vec<ContactId>,
+    pub first_notification: u32,
+    /// 0: no upper bound.
+    pub last_notification: u32,
+    pub notification_interval: Option<f64>,
+    pub period: Option<String>,
+    pub options: corax_config::StateOptions,
+}
+
 /// Nesting limit of `inherits_parent` (dependency loops end here).
 const MAX_DEPENDENCY_DEPTH: u8 = 16;
 
@@ -292,6 +304,10 @@ pub struct World {
     pub host_dependencies: Vec<Dependencies>,
     /// Indexed by service id.
     pub service_dependencies: Vec<Dependencies>,
+    /// Indexed by host id.
+    pub host_escalations: Vec<Vec<Escalation>>,
+    /// Indexed by service id.
+    pub service_escalations: Vec<Vec<Escalation>>,
     pub comments: BTreeMap<u64, Comment>,
     pub downtimes: BTreeMap<u64, Downtime>,
     pub program: ProgramState,
@@ -463,6 +479,37 @@ impl World {
             deps.execution.extend(execution);
         }
 
+        let mut host_escalations = vec![Vec::new(); hosts.len()];
+        let mut service_escalations = vec![Vec::new(); services.len()];
+        for e in &objects.escalations {
+            let Some(host) = host_by_name.get(&e.host_name) else { continue };
+            let mut members: Vec<ContactId> =
+                e.contacts.iter().filter_map(|n| contact_by_name.get(n).copied()).collect();
+            for group in &e.contact_groups {
+                if let Some(g) = contactgroups.iter().find(|g| g.cfg.name == *group) {
+                    members.extend(g.members.iter().copied());
+                }
+            }
+            members.sort();
+            members.dedup();
+            let escalation = Escalation {
+                contacts: members,
+                first_notification: e.first_notification,
+                last_notification: e.last_notification,
+                notification_interval: e.notification_interval.filter(|i| *i >= 0.0),
+                period: e.escalation_period.clone(),
+                options: e.escalation_options,
+            };
+            match &e.service_description {
+                None => host_escalations[host.0 as usize].push(escalation),
+                Some(service) => {
+                    if let Some(sid) = service_by_name[host.0 as usize].get(service) {
+                        service_escalations[sid.0 as usize].push(escalation);
+                    }
+                }
+            }
+        }
+
         let program = ProgramState {
             program_start: now,
             pid: std::process::id(),
@@ -503,6 +550,8 @@ impl World {
             contact_by_name,
             host_dependencies,
             service_dependencies,
+            host_escalations,
+            service_escalations,
             comments: BTreeMap::new(),
             downtimes: BTreeMap::new(),
             program,
@@ -592,6 +641,24 @@ impl World {
                 format!("{};{}", self.host(svc.host).cfg.name, svc.cfg.description)
             }
         }
+    }
+
+    /// The escalations that apply to the current notification of `t`: those whose range
+    /// contains its notification number, whose period is active and whose options
+    /// include the current state.
+    pub fn active_escalations(&self, t: Target, now: i64) -> impl Iterator<Item = &Escalation> {
+        let (escalations, is_host) = match t {
+            Target::Host(h) => (self.host_escalations.get(h.0 as usize), true),
+            Target::Service(s) => (self.service_escalations.get(s.0 as usize), false),
+        };
+        let st = self.state(t);
+        let (number, state) = (st.current_notification_number, st.current_state);
+        escalations.into_iter().flatten().filter(move |e| {
+            e.first_notification <= number
+                && (e.last_notification == 0 || number <= e.last_notification)
+                && e.options.has_state(state, is_host)
+                && (e.period.is_none() || timeperiod::is_active(&self.objects.timeperiods, e.period.as_deref(), now))
+        })
     }
 
     /// Whether a notification (or execution) dependency of `t` fails at `now`.

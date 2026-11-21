@@ -24,7 +24,7 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets
       - name: shellcheck
-        run: shellcheck packaging/omd/corax-omd tools/*/*.sh
+        run: shellcheck packaging/omd/corax-omd packaging/checkmk/corax-site-check tools/*/*.sh
       - name: version and changelog are consistent
         run: tools/release/check.sh
 

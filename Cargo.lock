@@ -124,6 +124,7 @@ dependencies = [
  "chrono",
  "corax-config",
  "corax-core",
+ "memchr",
  "parking_lot",
  "regex",
  "serde_json",

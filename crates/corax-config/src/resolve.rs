@@ -281,8 +281,14 @@ impl Resolver {
 
         for (a, order, raw) in self.resolve_kind("timeperiod") {
             let mut tp = Timeperiod::default();
-            for key in &order {
+            // Exceptions share their first word (`day 1 …`, `day 15 …`), so the lines of
+            // the object itself are taken one by one; templates only add what is missing.
+            let own: HashSet<&str> = raw.attrs.iter().map(|(k, _)| k.as_str()).collect();
+            for key in order.iter().filter(|k| !own.contains(k.as_str())) {
                 tp.add_attr(key, &a[key]);
+            }
+            for (key, value) in raw.attrs.iter().filter(|(_, v)| v != "null") {
+                tp.add_attr(key, value);
             }
             if tp.name.is_empty() {
                 self.err("timeperiod without timeperiod_name".into(), Some((&raw.file, raw.line)));

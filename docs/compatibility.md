@@ -44,8 +44,8 @@ Legend: ✅ supported · 🟡 partial · ⛔ not supported (accepted and ignored
 | Custom variables (`_FOO`), incl. Checkmk hex-encoded labels/tags | ✅ |
 | Service host lists (`host_name a,b`, `*`, `!excluded`, `hostgroup_name`) | ✅ |
 | Implicit inheritance host → service (contacts, notification period/interval) | ✅ |
-| Time periods: weekdays, `YYYY-MM-DD[ - YYYY-MM-DD]` exceptions, `exclude` | ✅ |
-| Time periods: `day 1`, `monday 3`, `december 25` style exceptions | ⛔ | warning on load |
+| Time periods: weekdays, `exclude` | ✅ |
+| Time periods: exceptions (`2026-12-24`, `december 25`, `day 1 - 15`, `monday 3`, `thursday -1 november`), ranges and skip intervals (`/ 2`) | ✅ | |
 | `servicedependency`, `hostdependency` | ✅ | notification and execution criteria, `inherits_parent`, `dependency_period`, host and service lists, hostgroups; `soft_state_dependencies` is honoured. Servicegroup lists are not expanded |
 | `*escalation`, `*extinfo` | ⛔ | warning on load |
 

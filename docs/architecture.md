@@ -61,4 +61,4 @@
 | Livestatus | Socket path and options taken from the `livestatus.o` `broker_module` line. |
 | Graphs | `npcdmod.o` options (`perfdata_file`, `perfdata_spool_dir`, interval) are honoured natively. Graph data is served by the `rrddata` Livestatus columns, which read the RRDs through the site's rrdcached after the world lock has been released. |
 | Notifications | Contacts and notification commands from the configuration, e.g. `check-mk-notify` → `cmk --notify`. |
-| History | `nagios.log` and `archive/` in Nagios format, consumed by Livestatus `log`/`statehist`. |
+| History | `nagios.log` and `archive/` in Nagios format, consumed by Livestatus `log`/`statehist`. `statehist` snapshots the configured objects under the world lock, then replays the log files of the query period without it; files are read one at a time and nothing is cached, so memory stays bounded for long periods. |

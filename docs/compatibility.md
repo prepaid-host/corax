@@ -85,8 +85,8 @@ variables) are accepted and ignored: the configuration is owned by Checkmk.
 
 | Feature | Status |
 |---|---|
-| Tables `hosts`, `services`, `hostgroups`, `servicegroups`, `contacts`, `contactgroups`, `commands`, `timeperiods`, `status`, `columns`, `comments`, `downtimes`, `log`, `hostsbygroup`, `servicesbygroup`, `servicesbyhostgroup`, `crashreports`, `labels` | ✅ |
-| `statehist` | ⛔ | empty result (availability reports show no data) |
+| Tables `hosts`, `services`, `hostgroups`, `servicegroups`, `contacts`, `contactgroups`, `commands`, `timeperiods`, `status`, `columns`, `comments`, `downtimes`, `log`, `statehist`, `hostsbygroup`, `servicesbygroup`, `servicesbyhostgroup`, `crashreports`, `labels` | ✅ |
+| `statehist` | ✅ | rebuilt from `nagios.log` and the archive with the algorithm of the original, so availability reports match; the same log files give the same rows as Livestatus on Nagios (the order of the rows differs) |
 | `eventconsole*` tables | ⛔ | empty result |
 | Headers `Columns`, `Filter`, `And`/`Or`/`Negate`, `Stats*`, group-by, `Limit`, `OrderBy`, `OutputFormat` (json, python, python3, csv, default), `Separators`, `ColumnHeaders`, `ResponseHeader: fixed16`, `KeepAlive`, `AuthUser`, `Wait*` | ✅ |
 | `Localtime`, `Timelimit` | 🟡 | accepted, ignored |
@@ -100,7 +100,7 @@ variables) are accepted and ignored: the configuration is owned by Checkmk.
 
 | File | Status |
 |---|---|
-| `nagios.log` + archive | ✅ Nagios format |
+| `nagios.log` + archive | ✅ Nagios format, including the lines the Livestatus module adds for the state history (`TIMEPERIOD TRANSITION`, `logging initial states`, downtime alerts after a start or rotation) |
 | `retention.dat` | ✅ read and written in Nagios format (switching in both directions) |
 | Check result spool (`c??????` + `.ok`) | ✅ |
 | PNP4Nagios npcdmod perfdata (`perfdata.dump` → spool) | ✅ |

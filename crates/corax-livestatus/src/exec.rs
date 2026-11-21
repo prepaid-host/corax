@@ -257,6 +257,22 @@ fn compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
     }
 }
 
+/// Rebuild the state history for the period of a `statehist` query. The world lock is
+/// only held to snapshot the configured objects, not while the log files are read.
+fn state_history(shared: &Shared, paths: &corax_core::Paths, q: &Query) -> Vec<tables::statehist::Span> {
+    let now = corax_core::now();
+    let objects = {
+        let world = shared.world.read();
+        let ctx = Ctx { world: &world, paths, now, auth: Auth::All };
+        tables::statehist::Objects::collect(&ctx, &q.filter)
+    };
+    // the bounds are inclusive, the period is the half-open interval [since, until)
+    let (lo, hi) = q.filter.int_bounds("time");
+    let since = if lo == i64::MIN { 0 } else { lo };
+    let until = if hi == i64::MAX { now } else { hi }.saturating_add(1);
+    tables::statehist::compute(paths, &objects, since, until)
+}
+
 /// Execute a parsed `GET` query.
 pub fn run_query(shared: &Shared, q: &Query) -> Response {
     crate::stats().count_query();
@@ -265,7 +281,10 @@ pub fn run_query(shared: &Shared, q: &Query) -> Response {
     }
     let paths = shared.paths();
     let period = if q.table == "log" { q.filter.int_bounds("time") } else { (i64::MIN, i64::MAX) };
-    let pre: Preloaded = tables::preload(&q.table, &paths, period);
+    let mut pre: Preloaded = tables::preload(&q.table, &paths, period);
+    if q.table == "statehist" {
+        pre.statehist = state_history(shared, &paths, q);
+    }
 
     let order_cols: Vec<&Column> = q.order_by.iter().map(|(c, _)| c).collect();
     let mut rows: Vec<Vec<Value>> = Vec::new();

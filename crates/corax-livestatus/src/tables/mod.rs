@@ -13,6 +13,7 @@ mod hosts;
 pub mod log;
 mod misc;
 mod services;
+pub mod statehist;
 mod status;
 
 use std::path::Path;
@@ -95,6 +96,7 @@ pub enum Row<'a> {
     Comment(&'a Comment),
     Downtime(&'a Downtime),
     Log(&'a LogEntry),
+    StateHist(&'a statehist::Span),
     HostByGroup(&'a Host, &'a HostGroup),
     ServiceByGroup(&'a Service, &'a ServiceGroup),
     ServiceByHostGroup(&'a Service, &'a HostGroup),
@@ -112,6 +114,7 @@ impl<'a> Row<'a> {
             Row::Comment(c) => Some(w.host(w.host_of(c.target))),
             Row::Downtime(d) => Some(w.host(w.host_of(d.target))),
             Row::Log(l) => w.find_host(&l.host_name).map(|h| w.host(h)),
+            Row::StateHist(s) => w.find_host(&s.host_name).map(|h| w.host(h)),
             _ => None,
         }
     }
@@ -125,6 +128,9 @@ impl<'a> Row<'a> {
             Row::Downtime(Downtime { target: Target::Service(s), .. }) => Some(w.service(*s)),
             Row::Log(l) if !l.service_description.is_empty() => {
                 w.find_service(&l.host_name, &l.service_description).map(|s| w.service(s))
+            }
+            Row::StateHist(s) if !s.service_description.is_empty() => {
+                w.find_service(&s.host_name, &s.service_description).map(|s| w.service(s))
             }
             _ => None,
         }
@@ -255,6 +261,7 @@ fn own_column(table: &str, name: &str) -> Option<Getter> {
         "comments" => comments::comment_column(name),
         "downtimes" => comments::downtime_column(name),
         "log" => log::column(name),
+        "statehist" => statehist::column(name),
         "status" => status::column(name),
         "columns" => misc::columns_column(name),
         "commands" => misc::command_column(name),
@@ -335,6 +342,7 @@ fn rrd_column(table: &str, dynamic: &str, rest: &str) -> Result<Column, String> 
 #[derive(Default)]
 pub struct Preloaded {
     pub log: Vec<Arc<log::LogChunk>>,
+    pub statehist: Vec<statehist::Span>,
     pub crash_reports: Vec<CrashReport>,
 }
 
@@ -442,9 +450,23 @@ pub fn for_each_row<'a>(
                 }
             }
         }
+        "statehist" => {
+            for span in &pre.statehist {
+                let row = Row::StateHist(span);
+                // objects that vanished from the configuration meanwhile have no row
+                let visible = match (row.service(ctx), row.host(ctx)) {
+                    (Some(s), _) => ctx.service_visible(s),
+                    (None, Some(h)) if span.service_description.is_empty() => ctx.host_visible(h),
+                    _ => false,
+                };
+                if visible && !f(row) {
+                    return;
+                }
+            }
+        }
         "crashreports" => each!(pre.crash_reports.iter().map(Row::CrashReport)),
         "labels" => each!(labels.iter().map(Row::Label)),
-        // statehist and the Event Console tables are not (yet) provided by corax
+        // the Event Console tables are not (yet) provided by corax
         _ => {}
     }
 }

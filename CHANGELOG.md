@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Livestatus `statehist` table: the state history of hosts and services, rebuilt from
+  `nagios.log` and the archive. The Checkmk GUI computes availability reports from it;
+  they were empty before.
+- `nagios.log` now contains the lines `statehist` relies on: `TIMEPERIOD TRANSITION`
+  when a timeperiod starts or ends, and after every start, reload and log rotation
+  the state of all timeperiods, `logging initial states` and a `DOWNTIME ALERT` for
+  every downtime in effect.
+
+### Changed
+
+- A reload logs the initial states like a start does (with `log_initial_states=1`).
+
 ## [0.2.0] - 2026-11-20
 
 ### Added

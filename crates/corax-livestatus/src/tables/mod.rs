@@ -474,9 +474,10 @@ pub fn for_each_row<'a>(
         "labels" => each!(labels.iter().map(Row::Label)),
         "eventconsoleevents" | "eventconsolehistory" | "eventconsolerules" | "eventconsolestatus" => {
             let hosts = eventconsole::Designations::new(w);
+            let is_event = eventconsole::has_events(table);
             for ec in &pre.event_console {
                 let host = hosts.find(w, ec);
-                if eventconsole::visible(ctx, ec, host) && !f(Row::EventConsole(ec, host)) {
+                if eventconsole::visible(ctx, ec, host, is_event) && !f(Row::EventConsole(ec, host)) {
                     return;
                 }
             }

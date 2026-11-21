@@ -84,15 +84,24 @@ impl Designations {
     }
 }
 
-/// Whether the user may see an event (`events` and `history` only).
-pub fn visible(ctx: &Ctx<'_>, row: &EcRow, host: Option<&Host>) -> bool {
+/// Whether rows of `table` belong to an event and are subject to authorization.
+pub fn has_events(table: &str) -> bool {
+    matches!(table, "eventconsoleevents" | "eventconsolehistory")
+}
+
+/// Whether the user may see a row. Rows of the status and rule tables are visible to
+/// every contact; an event without the fields needed for the decision is not.
+pub fn visible(ctx: &Ctx<'_>, row: &EcRow, host: Option<&Host>, is_event: bool) -> bool {
     let contact = match ctx.auth {
         Auth::All => return true,
         Auth::Nobody => return false,
         Auth::Contact(c) => c,
     };
-    if !row.values.contains_key("event_contact_groups_precedence") {
+    if !is_event {
         return true;
+    }
+    if !row.values.contains_key("event_contact_groups_precedence") || !row.values.contains_key("event_contact_groups") {
+        return false;
     }
     let groups = row.get("event_contact_groups");
     let via_groups = || {
@@ -142,7 +151,7 @@ fn request(q: &Query) -> String {
         }
     }
     q.order_by.iter().for_each(|(c, _)| add(c));
-    if matches!(q.table.as_str(), "eventconsoleevents" | "eventconsolehistory") {
+    if has_events(&q.table) {
         // needed for the host join and for authorization
         columns.extend(["event_host", "event_contact_groups_precedence", "event_contact_groups"]);
     }
@@ -174,7 +183,9 @@ fn request(q: &Query) -> String {
             Op::MatchIcase => "~~",
             _ => continue,
         };
-        if GREPPING_COLUMNS.contains(&cf.column.canonical) && !cf.value.contains('\n') {
+        // a value with a line break would end the header line; it is filtered here only
+        let single_line = !cf.value.chars().any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}'));
+        if GREPPING_COLUMNS.contains(&cf.column.canonical) && single_line {
             out.push_str(&format!("\nFilter: {} {op} {}", cf.column.canonical, cf.value));
         }
     }
@@ -193,17 +204,28 @@ fn exchange(socket: &Path, request: &str) -> std::io::Result<Vec<u8>> {
     Ok(reply)
 }
 
-/// The first line names the columns, the values are separated by tabs.
+/// The first line names the columns, the values are separated by tabs. The format has
+/// no escaping, so a line whose number of fields differs from the header cannot be
+/// trusted to have its values in the right columns and is dropped.
 fn parse(reply: &[u8]) -> Vec<EcRow> {
     let text = String::from_utf8_lossy(reply);
     let mut lines = text.split('\n').take_while(|l| !l.is_empty());
     let Some(header) = lines.next() else { return Vec::new() };
     let names: Vec<&str> = header.split('\t').collect();
-    lines
-        .map(|line| EcRow {
-            values: names.iter().zip(line.split('\t')).map(|(n, v)| (n.to_string(), v.to_string())).collect(),
-        })
-        .collect()
+    let mut rows = Vec::new();
+    for line in lines {
+        let fields: Vec<&str> = line.split('\t').collect();
+        if fields.len() != names.len() {
+            tracing::warn!(
+                "ignoring a malformed line from the Event Console ({} fields, expected {})",
+                fields.len(),
+                names.len()
+            );
+            continue;
+        }
+        rows.push(EcRow { values: names.iter().zip(fields).map(|(n, v)| (n.to_string(), v.to_string())).collect() });
+    }
+    rows
 }
 
 /// Whether the site runs the Event Console (`omd config set MKEVENTD on`).
@@ -252,5 +274,9 @@ mod tests {
         assert!(rows[1].list("event_contact_groups").is_empty());
         assert_eq!((rows[1].number("event_first"), rows[1].number("missing"), rows[1].get("missing")), (0.0, 0.0, ""));
         assert!(parse(b"").is_empty());
+        // too few or too many fields: the values cannot be assigned to columns
+        let rows = parse(b"event_id\tevent_text\n1\n2\ta\tb\n3\tok\n");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].get("event_text"), "ok");
     }
 }

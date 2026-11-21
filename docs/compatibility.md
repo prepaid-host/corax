@@ -46,8 +46,8 @@ Legend: ✅ supported · 🟡 partial · ⛔ not supported (accepted and ignored
 | Implicit inheritance host → service (contacts, notification period/interval) | ✅ |
 | Time periods: weekdays, `YYYY-MM-DD[ - YYYY-MM-DD]` exceptions, `exclude` | ✅ |
 | Time periods: `day 1`, `monday 3`, `december 25` style exceptions | ⛔ | warning on load |
-| `servicedependency` | 🟡 | parsed, not evaluated |
-| `hostdependency`, `*escalation`, `*extinfo` | ⛔ | warning on load |
+| `servicedependency`, `hostdependency` | ✅ | notification and execution criteria, `inherits_parent`, `dependency_period`, host and service lists, hostgroups; `soft_state_dependencies` is honoured. Servicegroup lists are not expanded |
+| `*escalation`, `*extinfo` | ⛔ | warning on load |
 
 ## Runtime semantics
 

@@ -556,24 +556,62 @@ impl Resolver {
         }
 
         // --- service dependencies
-        for (a, _, _) in self.resolve_kind("servicedependency") {
-            cfg.service_dependencies.push(ServiceDependencyConfig {
-                host_name: text(&a, "host_name"),
-                service_description: text(&a, "service_description"),
-                dependent_host_name: opt_text(&a, "dependent_host_name").unwrap_or_else(|| text(&a, "host_name")),
-                dependent_service_description: text(&a, "dependent_service_description"),
-                notification_failure_criteria: text(&a, "notification_failure_criteria"),
-                execution_failure_criteria: text(&a, "execution_failure_criteria"),
-            });
+        for (a, _, raw) in self.resolve_kind("servicedependency") {
+            let masters = self.dependency_hosts(&a, "host_name", "hostgroup_name", &hostgroups, &raw);
+            let same_host = !a.contains_key("dependent_host_name") && !a.contains_key("dependent_hostgroup_name");
+            let dependents = if same_host {
+                Vec::new()
+            } else {
+                self.dependency_hosts(&a, "dependent_host_name", "dependent_hostgroup_name", &hostgroups, &raw)
+            };
+            let services = split_list(&text(&a, "service_description"));
+            let dependent_services = split_list(&text(&a, "dependent_service_description"));
+            for master in &masters {
+                // without dependent hosts every host depends on its own services
+                let dependents = if same_host { std::slice::from_ref(master) } else { &dependents[..] };
+                for dependent in dependents {
+                    for service in &services {
+                        for dependent_service in &dependent_services {
+                            cfg.service_dependencies.push(ServiceDependencyConfig {
+                                host_name: master.clone(),
+                                service_description: service.clone(),
+                                dependent_host_name: dependent.clone(),
+                                dependent_service_description: dependent_service.clone(),
+                                notification_failure_criteria: text(&a, "notification_failure_criteria"),
+                                execution_failure_criteria: text(&a, "execution_failure_criteria"),
+                                inherits_parent: flag(&a, "inherits_parent", false),
+                                dependency_period: opt_text(&a, "dependency_period"),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- host dependencies
+        for (a, _, raw) in self.resolve_kind("hostdependency") {
+            let masters = self.dependency_hosts(&a, "host_name", "hostgroup_name", &hostgroups, &raw);
+            let dependents =
+                self.dependency_hosts(&a, "dependent_host_name", "dependent_hostgroup_name", &hostgroups, &raw);
+            for master in &masters {
+                for dependent in &dependents {
+                    cfg.host_dependencies.push(HostDependencyConfig {
+                        host_name: master.clone(),
+                        dependent_host_name: dependent.clone(),
+                        notification_failure_criteria: text(&a, "notification_failure_criteria"),
+                        execution_failure_criteria: text(&a, "execution_failure_criteria"),
+                        inherits_parent: flag(&a, "inherits_parent", false),
+                        dependency_period: opt_text(&a, "dependency_period"),
+                    });
+                }
+            }
         }
 
         // Remaining kinds: accepted but not evaluated.
         let leftover: Vec<String> = self.by_kind.keys().cloned().collect();
         for kind in leftover {
-            let known = matches!(
-                kind.as_str(),
-                "hostdependency" | "hostescalation" | "serviceescalation" | "hostextinfo" | "serviceextinfo"
-            );
+            let known =
+                matches!(kind.as_str(), "hostescalation" | "serviceescalation" | "hostextinfo" | "serviceextinfo");
             let n = self.by_kind.remove(&kind).map(|v| v.len()).unwrap_or(0);
             if known {
                 self.warn(format!("{n} {kind} definition(s) are accepted but not evaluated by corax"), None);
@@ -587,6 +625,29 @@ impl Resolver {
         cfg.contactgroups = contactgroups;
         self.validate(&cfg);
         cfg
+    }
+
+    /// The hosts named by a host list and a hostgroup list of a dependency.
+    fn dependency_hosts(
+        &mut self,
+        a: &Attrs,
+        hosts_key: &str,
+        groups_key: &str,
+        groups: &[GroupConfig],
+        raw: &RawObject,
+    ) -> Vec<String> {
+        let mut hosts = a.get(hosts_key).map(|v| split_list(v)).unwrap_or_default();
+        for name in a.get(groups_key).map(|v| split_list(v)).unwrap_or_default() {
+            match groups.iter().find(|g| g.name == name) {
+                Some(g) => hosts.extend(g.members.iter().cloned()),
+                None => {
+                    self.err(format!("dependency refers to unknown hostgroup '{name}'"), Some((&raw.file, raw.line)))
+                }
+            }
+        }
+        let mut seen = HashSet::new();
+        hosts.retain(|h| seen.insert(h.clone()));
+        hosts
     }
 
     /// Expand `host_name` / `hostgroup_name` lists incl. `*` and `!exclusions`.
@@ -796,5 +857,37 @@ define hostgroup {
         let c = CommandCall::parse("check-mk-host-ping!-w 200.00,80.00% -c 500.00,100.00%");
         assert_eq!(c.name, "check-mk-host-ping");
         assert_eq!(c.args, vec!["-w 200.00,80.00% -c 500.00,100.00%"]);
+    }
+
+    #[test]
+    fn dependencies_expand_lists_and_hostgroups() {
+        let base = "define command {\n command_name dummy\n command_line /bin/true\n}\n\
+            define host {\n host_name a\n address 1\n max_check_attempts 1\n hostgroups web\n}\n\
+            define host {\n host_name b\n address 2\n max_check_attempts 1\n hostgroups web\n}\n\
+            define hostgroup {\n hostgroup_name web\n}\n\
+            define service {\n hostgroup_name web\n service_description Agent\n check_command dummy\n max_check_attempts 1\n}\n\
+            define service {\n hostgroup_name web\n service_description X\n check_command dummy\n max_check_attempts 1\n}\n\
+            define service {\n hostgroup_name web\n service_description Y\n check_command dummy\n max_check_attempts 1\n}\n";
+        let deps = "define servicedependency {\n hostgroup_name web\n service_description Agent\n \
+            dependent_service_description X,Y\n notification_failure_criteria c\n inherits_parent 1\n}\n\
+            define hostdependency {\n host_name a\n dependent_hostgroup_name web\n notification_failure_criteria d\n}\n";
+        let (cfg, diags) = resolve(&format!("{base}{deps}")).unwrap();
+        assert!(diags.iter().all(|d| d.severity != Severity::Error), "{diags:?}");
+        // every host of the group depends on its own service
+        let pairs: Vec<String> = cfg
+            .service_dependencies
+            .iter()
+            .map(|d| {
+                format!(
+                    "{}/{}>{}/{}",
+                    d.dependent_host_name, d.dependent_service_description, d.host_name, d.service_description
+                )
+            })
+            .collect();
+        assert_eq!(pairs, ["a/X>a/Agent", "a/Y>a/Agent", "b/X>b/Agent", "b/Y>b/Agent"]);
+        assert!(cfg.service_dependencies[0].inherits_parent);
+        let hosts: Vec<(&str, &str)> =
+            cfg.host_dependencies.iter().map(|d| (d.host_name.as_str(), d.dependent_host_name.as_str())).collect();
+        assert_eq!(hosts, [("a", "a"), ("a", "b")]);
     }
 }

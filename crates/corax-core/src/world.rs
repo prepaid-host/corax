@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use corax_config::{LoadedConfig, MainConfig, ObjectConfig};
+use corax_config::{timeperiod, LoadedConfig, MainConfig, ObjectConfig};
 
 use crate::model::*;
 
@@ -47,6 +47,8 @@ pub struct Settings {
     pub global_service_event_handler: Option<String>,
     pub cached_host_check_horizon: i64,
     pub log_rotation_method: char,
+    /// Dependencies look at soft states too (default: the last hard state counts).
+    pub soft_state_dependencies: bool,
 }
 
 impl Settings {
@@ -92,6 +94,7 @@ impl Settings {
                 .map(String::from),
             cached_host_check_horizon: m.i64_or("cached_host_check_horizon", 15),
             log_rotation_method: m.str_or("log_rotation_method", "d").chars().next().unwrap_or('d'),
+            soft_state_dependencies: m.bool_or("soft_state_dependencies", false),
         }
     }
 }
@@ -227,6 +230,49 @@ pub struct ContactGroup {
 
 /// The complete monitoring state. Protected by a `RwLock` in [`crate::Shared`]; only the
 /// engine task writes, Livestatus readers take short read locks.
+/// One edge of a host or service dependency, seen from the dependent object.
+#[derive(Debug, Clone)]
+pub struct Dependency {
+    pub master: Target,
+    /// Bit `n` set: the dependency fails while the master is in state `n`.
+    pub fail_states: u8,
+    /// The dependency fails while the master has not been checked yet.
+    pub fail_on_pending: bool,
+    /// Also fails if a dependency of the master fails.
+    pub inherits_parent: bool,
+    pub period: Option<String>,
+}
+
+/// What an object depends on.
+#[derive(Debug, Clone, Default)]
+pub struct Dependencies {
+    /// No problem and recovery notifications while one of these fails.
+    pub notification: Vec<Dependency>,
+    /// No scheduled active checks while one of these fails.
+    pub execution: Vec<Dependency>,
+}
+
+/// Parse failure criteria (`o,w,u,c,p` for services, `o,d,u,p` for hosts, `a`, `n`).
+fn failure_criteria(criteria: &str, is_host: bool) -> (u8, bool) {
+    let mut states = 0u8;
+    let mut pending = false;
+    for opt in criteria.split(',').map(str::trim) {
+        match (opt, is_host) {
+            ("o", _) => states |= 1 << 0,
+            ("w", false) | ("d", true) => states |= 1 << 1,
+            ("c", false) | ("u", true) => states |= 1 << 2,
+            ("u", false) => states |= 1 << 3,
+            ("p", _) => pending = true,
+            ("a", _) => return (if is_host { 0b0111 } else { 0b1111 }, true),
+            _ => {}
+        }
+    }
+    (states, pending)
+}
+
+/// Nesting limit of `inherits_parent` (dependency loops end here).
+const MAX_DEPENDENCY_DEPTH: u8 = 16;
+
 #[derive(Debug)]
 pub struct World {
     pub objects: Arc<ObjectConfig>,
@@ -242,6 +288,10 @@ pub struct World {
     /// Per host: service description → id.
     pub service_by_name: Vec<HashMap<String, ServiceId>>,
     pub contact_by_name: HashMap<String, ContactId>,
+    /// Indexed by host id.
+    pub host_dependencies: Vec<Dependencies>,
+    /// Indexed by service id.
+    pub service_dependencies: Vec<Dependencies>,
     pub comments: BTreeMap<u64, Comment>,
     pub downtimes: BTreeMap<u64, Downtime>,
     pub program: ProgramState,
@@ -358,6 +408,61 @@ impl World {
             })
             .collect();
 
+        let mut host_dependencies = vec![Dependencies::default(); hosts.len()];
+        let mut service_dependencies = vec![Dependencies::default(); services.len()];
+        let edges = |master: Target, notification: &str, execution: &str, inherits: bool, period: &Option<String>| {
+            let is_host = matches!(master, Target::Host(_));
+            [notification, execution].map(|criteria| {
+                let (fail_states, fail_on_pending) = failure_criteria(criteria, is_host);
+                (fail_states != 0 || fail_on_pending).then(|| Dependency {
+                    master,
+                    fail_states,
+                    fail_on_pending,
+                    inherits_parent: inherits,
+                    period: period.clone(),
+                })
+            })
+        };
+        for d in &objects.host_dependencies {
+            let (Some(master), Some(dependent)) =
+                (host_by_name.get(&d.host_name), host_by_name.get(&d.dependent_host_name))
+            else {
+                continue;
+            };
+            let [notification, execution] = edges(
+                Target::Host(*master),
+                &d.notification_failure_criteria,
+                &d.execution_failure_criteria,
+                d.inherits_parent,
+                &d.dependency_period,
+            );
+            let deps = &mut host_dependencies[dependent.0 as usize];
+            deps.notification.extend(notification);
+            deps.execution.extend(execution);
+        }
+        for d in &objects.service_dependencies {
+            let find = |host: &str, service: &str| {
+                let hid = host_by_name.get(host)?;
+                service_by_name[hid.0 as usize].get(service).copied()
+            };
+            let (Some(master), Some(dependent)) = (
+                find(&d.host_name, &d.service_description),
+                find(&d.dependent_host_name, &d.dependent_service_description),
+            ) else {
+                continue;
+            };
+            let [notification, execution] = edges(
+                Target::Service(master),
+                &d.notification_failure_criteria,
+                &d.execution_failure_criteria,
+                d.inherits_parent,
+                &d.dependency_period,
+            );
+            let deps = &mut service_dependencies[dependent.0 as usize];
+            deps.notification.extend(notification);
+            deps.execution.extend(execution);
+        }
+
         let program = ProgramState {
             program_start: now,
             pid: std::process::id(),
@@ -396,6 +501,8 @@ impl World {
             host_by_name,
             service_by_name,
             contact_by_name,
+            host_dependencies,
+            service_dependencies,
             comments: BTreeMap::new(),
             downtimes: BTreeMap::new(),
             program,
@@ -485,6 +592,33 @@ impl World {
                 format!("{};{}", self.host(svc.host).cfg.name, svc.cfg.description)
             }
         }
+    }
+
+    /// Whether a notification (or execution) dependency of `t` fails at `now`.
+    pub fn dependency_failed(&self, t: Target, execution: bool, now: i64) -> bool {
+        self.dependency_failed_at_depth(t, execution, now, 0)
+    }
+
+    fn dependency_failed_at_depth(&self, t: Target, execution: bool, now: i64, depth: u8) -> bool {
+        if depth >= MAX_DEPENDENCY_DEPTH {
+            return false;
+        }
+        let deps = match t {
+            Target::Host(h) => self.host_dependencies.get(h.0 as usize),
+            Target::Service(s) => self.service_dependencies.get(s.0 as usize),
+        };
+        let Some(deps) = deps else { return false };
+        let edges = if execution { &deps.execution } else { &deps.notification };
+        edges.iter().any(|d| {
+            if d.period.is_some() && !timeperiod::is_active(&self.objects.timeperiods, d.period.as_deref(), now) {
+                return false;
+            }
+            let st = self.state(d.master);
+            let state = if self.settings.soft_state_dependencies { st.current_state } else { st.hard_state() };
+            d.fail_states & (1 << state.min(7)) != 0
+                || (d.fail_on_pending && state == 0 && !st.has_been_checked)
+                || (d.inherits_parent && self.dependency_failed_at_depth(d.master, execution, now, depth + 1))
+        })
     }
 
     /// Check interval of a target in seconds.

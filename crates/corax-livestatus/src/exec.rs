@@ -284,6 +284,11 @@ pub fn run_query(shared: &Shared, q: &Query) -> Response {
     let mut pre: Preloaded = tables::preload(&q.table, &paths, period);
     if q.table == "statehist" {
         pre.statehist = state_history(shared, &paths, q);
+    } else if q.table.starts_with("eventconsole") {
+        match tables::eventconsole::fetch(&paths, q) {
+            Ok(rows) => pre.event_console = rows,
+            Err(message) => return Response::error(status::BAD_GATEWAY, &message, q.fixed16, q.keepalive),
+        }
     }
 
     let order_cols: Vec<&Column> = q.order_by.iter().map(|(c, _)| c).collect();

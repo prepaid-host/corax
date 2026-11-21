@@ -85,9 +85,9 @@ variables) are accepted and ignored: the configuration is owned by Checkmk.
 
 | Feature | Status |
 |---|---|
-| Tables `hosts`, `services`, `hostgroups`, `servicegroups`, `contacts`, `contactgroups`, `commands`, `timeperiods`, `status`, `columns`, `comments`, `downtimes`, `log`, `statehist`, `hostsbygroup`, `servicesbygroup`, `servicesbyhostgroup`, `crashreports`, `labels` | ✅ |
+| Tables `hosts`, `services`, `hostgroups`, `servicegroups`, `contacts`, `contactgroups`, `commands`, `timeperiods`, `status`, `columns`, `comments`, `downtimes`, `log`, `statehist`, `eventconsoleevents`, `eventconsolehistory`, `eventconsolerules`, `eventconsolestatus`, `hostsbygroup`, `servicesbygroup`, `servicesbyhostgroup`, `crashreports`, `labels` | ✅ |
 | `statehist` | ✅ | rebuilt from `nagios.log` and the archive with the algorithm of the original, so availability reports match; the same log files give the same rows as Livestatus on Nagios (the order of the rows differs) |
-| `eventconsole*` tables | ⛔ | empty result |
+| `eventconsole*` tables | ✅ | forwarded to mkeventd like the original: only the columns of the query are requested, time range and simple filters are evaluated by mkeventd, hosts are joined by name, alias or address, `AuthUser` follows the contact group precedence of the event. `eventconsolereplication` is not provided |
 | Headers `Columns`, `Filter`, `And`/`Or`/`Negate`, `Stats*`, group-by, `Limit`, `OrderBy`, `OutputFormat` (json, python, python3, csv, default), `Separators`, `ColumnHeaders`, `ResponseHeader: fixed16`, `KeepAlive`, `AuthUser`, `Wait*` | ✅ |
 | `Localtime`, `Timelimit` | 🟡 | accepted, ignored |
 | Column set | ✅ | the complete 2.5 schema is known; columns without data in corax return type-correct defaults |

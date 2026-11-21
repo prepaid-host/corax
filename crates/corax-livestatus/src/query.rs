@@ -9,6 +9,7 @@ pub mod status {
     pub const OK: u16 = 200;
     pub const BAD_REQUEST: u16 = 400;
     pub const NOT_FOUND: u16 = 404;
+    pub const BAD_GATEWAY: u16 = 502;
 }
 
 /// Aggregation function of a `Stats: <op> <column>` line.

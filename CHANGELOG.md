@@ -11,6 +11,8 @@ All notable changes to this project are documented here. The format follows
 - Host and service dependencies are evaluated: no problem and recovery notifications
   and no scheduled checks while a dependency fails. Checkmk uses this to keep
   "Check_MK Discovery" quiet when the agent of a host is unreachable.
+- Livestatus `eventconsoleevents`, `eventconsolehistory`, `eventconsolerules` and
+  `eventconsolestatus` tables: the Event Console views of the Checkmk GUI show data.
 
 ### Changed
 

@@ -283,6 +283,15 @@ impl Filter {
         }
     }
 
+    /// Visit every column the filter looks at.
+    pub fn for_each_column(&self, f: &mut dyn FnMut(&Column)) {
+        match self {
+            Filter::Column(cf) => f(&cf.column),
+            Filter::And(fs) | Filter::Or(fs) => fs.iter().for_each(|x| x.for_each_column(f)),
+            Filter::Not(x) => x.for_each_column(f),
+        }
+    }
+
     fn only_uses(&self, keep: &dyn Fn(&str) -> bool) -> bool {
         match self {
             Filter::Column(cf) => keep(cf.column.canonical),

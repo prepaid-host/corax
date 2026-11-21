@@ -242,6 +242,25 @@ pub struct HostDependencyConfig {
     pub dependency_period: Option<String>,
 }
 
+/// A notification escalation: from the `first_notification` of a problem on, its
+/// contacts are notified instead of those of the host or service.
+#[derive(Debug, Clone)]
+pub struct EscalationConfig {
+    pub host_name: String,
+    /// `None` for a host escalation.
+    pub service_description: Option<String>,
+    pub contacts: Vec<String>,
+    pub contact_groups: Vec<String>,
+    pub first_notification: u32,
+    /// 0: no upper bound.
+    pub last_notification: u32,
+    /// Overrides the notification interval of the object while the escalation applies.
+    pub notification_interval: Option<f64>,
+    pub escalation_period: Option<String>,
+    /// States the escalation applies to (all if not configured).
+    pub escalation_options: StateOptions,
+}
+
 /// The fully resolved object configuration.
 #[derive(Debug, Clone, Default)]
 pub struct ObjectConfig {
@@ -255,4 +274,5 @@ pub struct ObjectConfig {
     pub servicegroups: Vec<ServiceGroupConfig>,
     pub service_dependencies: Vec<ServiceDependencyConfig>,
     pub host_dependencies: Vec<HostDependencyConfig>,
+    pub escalations: Vec<EscalationConfig>,
 }

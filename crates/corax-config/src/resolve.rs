@@ -613,11 +613,40 @@ impl Resolver {
             }
         }
 
+        // --- escalations
+        for (kind, is_host) in [("hostescalation", true), ("serviceescalation", false)] {
+            for (a, _, raw) in self.resolve_kind(kind) {
+                let hosts = self.dependency_hosts(&a, "host_name", "hostgroup_name", &hostgroups, &raw);
+                let services: Vec<Option<String>> = if is_host {
+                    vec![None]
+                } else {
+                    split_list(&text(&a, "service_description")).into_iter().map(Some).collect()
+                };
+                let all = if is_host { StateOptions::ALL_HOST } else { StateOptions::ALL_SERVICE };
+                for host in &hosts {
+                    for service in &services {
+                        cfg.escalations.push(EscalationConfig {
+                            host_name: host.clone(),
+                            service_description: service.clone(),
+                            contacts: a.get("contacts").map(|v| split_list(v)).unwrap_or_default(),
+                            contact_groups: a.get("contact_groups").map(|v| split_list(v)).unwrap_or_default(),
+                            first_notification: num(&a, "first_notification", 0.0) as u32,
+                            last_notification: num(&a, "last_notification", 0.0) as u32,
+                            notification_interval: a.get("notification_interval").and_then(|v| v.trim().parse().ok()),
+                            escalation_period: opt_text(&a, "escalation_period"),
+                            escalation_options: a
+                                .get("escalation_options")
+                                .map_or(all, |v| StateOptions::parse(v, is_host)),
+                        });
+                    }
+                }
+            }
+        }
+
         // Remaining kinds: accepted but not evaluated.
         let leftover: Vec<String> = self.by_kind.keys().cloned().collect();
         for kind in leftover {
-            let known =
-                matches!(kind.as_str(), "hostescalation" | "serviceescalation" | "hostextinfo" | "serviceextinfo");
+            let known = matches!(kind.as_str(), "hostextinfo" | "serviceextinfo");
             let n = self.by_kind.remove(&kind).map(|v| v.len()).unwrap_or(0);
             if known {
                 self.warn(format!("{n} {kind} definition(s) are accepted but not evaluated by corax"), None);

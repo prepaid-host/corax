@@ -47,7 +47,8 @@ Legend: ✅ supported · 🟡 partial · ⛔ not supported (accepted and ignored
 | Time periods: weekdays, `exclude` | ✅ |
 | Time periods: exceptions (`2026-12-24`, `december 25`, `day 1 - 15`, `monday 3`, `thursday -1 november`), ranges and skip intervals (`/ 2`) | ✅ | |
 | `servicedependency`, `hostdependency` | ✅ | notification and execution criteria, `inherits_parent`, `dependency_period`, host and service lists, hostgroups; `soft_state_dependencies` is honoured. Servicegroup lists are not expanded |
-| `*escalation`, `*extinfo` | ⛔ | warning on load |
+| `hostescalation`, `serviceescalation` | ✅ | contacts, contact groups, notification range, `notification_interval`, `escalation_period`, `escalation_options`, host lists and hostgroups |
+| `*extinfo` | ⛔ | warning on load |
 
 ## Runtime semantics
 
@@ -60,7 +61,7 @@ Legend: ✅ supported · 🟡 partial · ⛔ not supported (accepted and ignored
 | Downtimes: fixed, flexible, triggered, propagated to child hosts, host+services | ✅ |
 | Comments (user, downtime, flapping, acknowledgement) | ✅ |
 | Notifications: problem, recovery, acknowledgement, flapping, downtime, custom; re-notification interval; first notification delay; contact options and periods | ✅ |
-| Notification escalations | ⛔ |
+| Notification escalations | ✅ |
 | Event handlers (object and global) | ✅ |
 | Freshness checks | ✅ |
 | Check periods (checks are rescheduled into the next active slot) | ✅ |

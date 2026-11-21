@@ -184,18 +184,32 @@ pub fn notify(ctx: &mut Ctx<'_>, t: Target, kind: NotifyKind, extra: NotifyExtra
     }
 
     // Book-keeping before expansion so $…NOTIFICATIONNUMBER$ is correct.
-    let interval_secs = {
-        let common = ctx.w.common(t);
-        (common.notification_interval * ctx.w.settings.interval_length as f64) as i64
-    };
     let increment = matches!(kind, NotifyKind::Problem) || (kind == NotifyKind::Custom && extra.options & 4 != 0);
     {
-        let now = ctx.now;
         let st = ctx.w.state_mut(t);
         st.notification_postponement_reason.clear();
         if increment {
             st.current_notification_number += 1;
         }
+    }
+    // Escalations that apply to this notification number replace the contacts of the
+    // object; the shortest of their intervals replaces its notification interval.
+    let mut escalated: Option<Vec<ContactId>> = None;
+    let mut interval = ctx.w.common(t).notification_interval;
+    let mut interval_escalated = false;
+    for e in ctx.w.active_escalations(t, ctx.now) {
+        escalated.get_or_insert_with(Vec::new).extend(e.contacts.iter().copied());
+        if let Some(i) = e.notification_interval {
+            if !interval_escalated || i < interval {
+                interval = i;
+                interval_escalated = true;
+            }
+        }
+    }
+    let interval_secs = (interval * ctx.w.settings.interval_length as f64) as i64;
+    {
+        let now = ctx.now;
+        let st = ctx.w.state_mut(t);
         if kind == NotifyKind::Problem {
             st.last_notification = now;
             if interval_secs > 0 {
@@ -208,9 +222,14 @@ pub fn notify(ctx: &mut Ctx<'_>, t: Target, kind: NotifyKind, extra: NotifyExtra
         }
     }
 
-    let contacts: Vec<ContactId> = match t {
-        Target::Host(h) => ctx.w.host(h).contacts.clone(),
-        Target::Service(s) => ctx.w.service(s).contacts.clone(),
+    let contacts: Vec<ContactId> = match (escalated, t) {
+        (Some(mut contacts), _) => {
+            contacts.sort();
+            contacts.dedup();
+            contacts
+        }
+        (None, Target::Host(h)) => ctx.w.host(h).contacts.clone(),
+        (None, Target::Service(s)) => ctx.w.service(s).contacts.clone(),
     };
     let recipients: Vec<ContactId> = contacts.into_iter().filter(|c| contact_viable(ctx, t, *c, &kind)).collect();
     if recipients.is_empty() {
@@ -430,5 +449,72 @@ mod tests {
         assert!(!ctx.w.state(discovery).is_executing);
         ctx.w.state_mut(discovery).forced_check = true;
         assert!(crate::checks::prepare_active_check(&mut ctx, discovery).is_some());
+    }
+
+    const ESCALATIONS: &str = "define contact {\n contact_name boss\n host_notification_commands notify\n service_notification_commands notify\n}\n\
+        define contact {\n contact_name oncall\n host_notification_commands notify\n service_notification_commands notify\n}\n\
+        define contactgroup {\n contactgroup_name management\n members boss\n}\n\
+        define timeperiod {\n timeperiod_name never\n alias Never\n}\n\
+        define serviceescalation {\n host_name h1\n service_description CPU load\n first_notification 2\n last_notification 3\n \
+        contact_groups management\n notification_interval 5\n}\n\
+        define serviceescalation {\n host_name h1\n service_description CPU load\n first_notification 3\n \
+        contacts oncall\n notification_interval 0\n escalation_options c\n}\n\
+        define serviceescalation {\n host_name h1\n service_description CPU load\n first_notification 1\n \
+        contacts oncall\n escalation_period never\n}\n\
+        define hostescalation {\n host_name h1\n first_notification 1\n contacts boss\n escalation_options d\n}\n";
+
+    /// Send a notification; returns the contacts notified.
+    fn recipients(ctx: &mut Ctx<'_>, t: Target, kind: NotifyKind) -> Vec<String> {
+        let before = ctx.fx.len();
+        notify(ctx, t, kind, NotifyExtra::default());
+        let mut names: Vec<String> = ctx.fx[before..]
+            .iter()
+            .filter_map(|e| match e {
+                Effect::Log(_, line) if line.contains(" NOTIFICATION: ") => {
+                    line.split(": ").nth(1).and_then(|rest| rest.split(';').next()).map(str::to_string)
+                }
+                _ => None,
+            })
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn escalations_replace_contacts_and_interval() {
+        let mut w = world_from(&format!("{OBJ}{ESCALATIONS}"));
+        let s = Target::Service(w.find_service("h1", "CPU load").unwrap());
+        w.state_mut(s).current_state = 2;
+        w.state_mut(s).has_been_checked = true;
+        let mut sched = Scheduler::new();
+        let mut fx = Vec::new();
+        let now = 1_700_000_000;
+        let mut ctx = Ctx { w: &mut w, sched: &mut sched, fx: &mut fx, now };
+
+        // 1: no escalation applies (the one starting at 1 is outside of its period)
+        assert_eq!(recipients(&mut ctx, s, NotifyKind::Problem), ["admin"]);
+        // 2: the first escalation, with its interval of 5 intervals of 60 seconds
+        ctx.w.state_mut(s).next_notification = 1;
+        assert_eq!(recipients(&mut ctx, s, NotifyKind::Problem), ["boss"]);
+        assert_eq!(ctx.w.state(s).next_notification, now + 5 * 60);
+        // 3: both escalations; the shorter interval (0: no more notifications) wins
+        ctx.w.state_mut(s).next_notification = 1;
+        assert_eq!(recipients(&mut ctx, s, NotifyKind::Problem), ["boss", "oncall"]);
+        assert!(ctx.w.state(s).no_more_notifications);
+        // the recovery goes to the contacts of the last problem notification
+        ctx.w.state_mut(s).current_state = 0;
+        assert_eq!(recipients(&mut ctx, s, NotifyKind::Recovery), ["boss"]);
+        assert_eq!(ctx.w.state(s).current_notification_number, 0);
+
+        // the second escalation is limited to CRITICAL: a WARNING at number 4 is not escalated
+        ctx.w.state_mut(s).current_state = 1;
+        ctx.w.state_mut(s).current_notification_number = 3;
+        ctx.w.state_mut(s).next_notification = 1;
+        assert_eq!(recipients(&mut ctx, s, NotifyKind::Problem), ["admin"]);
+
+        // host escalation from the first notification on
+        let h = Target::Host(ctx.w.find_host("h1").unwrap());
+        ctx.w.state_mut(h).current_state = 1;
+        assert_eq!(recipients(&mut ctx, h, NotifyKind::Problem), ["boss"]);
     }
 }

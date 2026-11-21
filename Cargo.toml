@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.85"
 license = "GPL-2.0-or-later"
@@ -11,9 +11,9 @@ repository = "https://github.com/prepaid-host/corax"
 authors = ["corax contributors"]
 
 [workspace.dependencies]
-corax-config = { path = "crates/corax-config", version = "0.3.0" }
-corax-core = { path = "crates/corax-core", version = "0.3.0" }
-corax-livestatus = { path = "crates/corax-livestatus", version = "0.3.0" }
+corax-config = { path = "crates/corax-config", version = "0.3.1" }
+corax-core = { path = "crates/corax-core", version = "0.3.1" }
+corax-livestatus = { path = "crates/corax-livestatus", version = "0.3.1" }
 anyhow = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "process", "signal", "sync", "time", "fs"] }

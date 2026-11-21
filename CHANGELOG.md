@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-21
+
+### Fixed
+
+- 0.3.0 could not be built with `--locked`: the workspace dependencies still asked for
+  0.2.0. No binaries were published for 0.3.0.
+
 ## [0.3.0] - 2026-11-21
 
 ### Added

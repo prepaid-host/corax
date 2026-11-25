@@ -68,7 +68,7 @@ jobs:
           cp target/${{ matrix.target }}/release/corax packaging/omd/corax-omd packaging/checkmk/corax-site-check README.md LICENSE "$dir/"
           tar czf "$dir.tar.gz" "$dir"
           sha256sum "$dir.tar.gz" > "$dir.tar.gz.sha256"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: corax-${{ matrix.arch }}-linux
           path: |
